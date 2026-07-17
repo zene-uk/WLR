@@ -1,0 +1,7 @@
+[package]
+name = "wlr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embedded-storage = "0.3.1"
