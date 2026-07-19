@@ -17,18 +17,40 @@ pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
 impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
+    #[inline]
+    #[must_use]
     pub fn get_next_address(&self) -> Address<PAGE_SIZE>
     {
         return (self.data_address.0 + self.data_size as u32).into();
+    }
+    #[inline]
+    #[must_use]
+    pub fn get_address(&self) -> Address<PAGE_SIZE>
+    {
+        return self.data_address;
+    }
+    #[inline]
+    #[must_use]
+    pub fn get_record(&self) -> Address<PAGE_SIZE>
+    {
+        return self.record_address;
+    }
+    #[inline]
+    #[must_use]
+    pub fn get_size(&self) -> u16
+    {
+        return self.data_size;
     }
 }
 
 pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32>
     where [(); K::COUNT]: ,
-        CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+        CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
+        CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
+    // index by key
     key_table: Box<EnumTable<K, u16, { K::COUNT }>>,
-    // static linked list ordered by page (address) - then a page lookup
+    // static linked list ordered by page (address)
     linked_list: Box<LinkedList<TableValue<K, PAGE_SIZE>, { K::COUNT }>>,
     // value is index into linked list
     page_table: Box<Map<u32, u16, { K::COUNT }>>
@@ -36,7 +58,8 @@ pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32>
 
 impl<K: NvsKey, const PAGE_SIZE: u32> KeyMap<K, PAGE_SIZE>
     where [(); K::COUNT]: ,
-        CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+        CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
+        CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
     pub fn new() -> Self
     {
@@ -55,7 +78,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32> KeyMap<K, PAGE_SIZE>
     }
     
     #[must_use]
-    pub fn get_address(&self, key: K) -> Option<Address<PAGE_SIZE>>
+    pub fn get_table_value(&self, key: K) -> Option<TableValue<K, PAGE_SIZE>>
     {
         let index = *self.key_table.get(&key);
         if index == 0xFFFF
@@ -63,7 +86,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32> KeyMap<K, PAGE_SIZE>
             return None;
         }
         
-        return Some(self.linked_list.get_node(index).as_ref().data_address);
+        return Some(*self.linked_list.get_node(index).as_ref());
     }
     /// if new address is on a page with values already - its value will be greater than the ones already there
     pub fn update_record(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
