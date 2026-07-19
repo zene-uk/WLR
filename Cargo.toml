@@ -5,3 +5,5 @@ edition = "2021"
 
 [dependencies]
 embedded-storage = "0.3.1"
+enum-table = { version = "3.0.1", default-features = false }
+micromap = "0.3.0"
