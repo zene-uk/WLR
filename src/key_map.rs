@@ -70,11 +70,28 @@ impl<K: NvsKey, const PAGE_SIZE: u32> KeyMap<K, PAGE_SIZE>
         };
     }
     
-    /// used to init map
-    pub fn insert_existing_value(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
+    /// doesnt update page data
+    pub fn add_value(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
     {
+        return self.add_value_inner(key, ra, da, size).is_some();
+    }
+    fn add_value_inner(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> Option<u16>
+    {
+        // cannot have duplicate keys
+        if self.key_table.get(&key) == &0xFFFF
+        {
+            return None;
+        }
+        
         let value = TableValue { record_address: ra, data_address: da, data_size: size, key };
-        return self.linked_list.add_value(value).is_some();
+        let index = match self.linked_list.insert_sorted(tv_cmp, value)
+        {
+            Some(i) => i,
+            None => return None
+        };
+        
+        self.key_table.set(&key, index);
+        return Some(index);
     }
     
     #[must_use]
@@ -174,22 +191,13 @@ impl<K: NvsKey, const PAGE_SIZE: u32> KeyMap<K, PAGE_SIZE>
     }
     
     /// if new value is on a page with values already - its address will be greater
-    pub fn add_new_value(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
+    pub fn add_value_page(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
     {
-        // cannot have duplicate keys
-        if self.key_table.get(&key) == &0xFFFF
-        {
-            return false;
-        }
-        
-        let value = TableValue { record_address: ra, data_address: da, data_size: size, key };
-        let index = match self.linked_list.insert_sorted(tv_cmp, value)
+        let index = match self.add_value_inner(key, ra, da, size)
         {
             Some(i) => i,
-            None => return false,
+            None => return false
         };
-        
-        self.key_table.set(&key, index);
         
         // add page if it doesnt exist already
         let page = da.get_page();
@@ -203,11 +211,11 @@ impl<K: NvsKey, const PAGE_SIZE: u32> KeyMap<K, PAGE_SIZE>
     
     pub fn initialise(&mut self)
     {
-        self.linked_list.sort(tv_cmp);
+        // self.linked_list.sort(tv_cmp);
         let mut last_page = u32::MAX;
-        for (i, n) in self.linked_list.iter_any()
+        for (i, n) in self.linked_list.iter_index()
         {
-            self.key_table.set(&n.key, i as u16);
+            // self.key_table.set(&n.key, i as u16);
             let page = n.data_address.get_page();
             // add index of first item in page
             if page != last_page

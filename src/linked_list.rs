@@ -158,7 +158,7 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         // out of bounds
         if index as usize >= self.len
         {
-            return LinkedIter { ll: self, current: 0xFFFF, start: 0xFFFF };
+            return LinkedIterMut { ll: self, current: 0xFFFF, start: 0xFFFF };
         }
         
         let mut start = 0xFFFF;
@@ -167,12 +167,17 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
             Some(v) => start = v,
             None => index = 0xFFFF,
         };
-        return LinkedIter { ll: self, current: index, start };
+        return LinkedIterMut { ll: self, current: index, start };
     }
     #[must_use]
-    pub fn iter_any(&self) -> impl Iterator<Item = (usize, &T)>
+    pub fn iter_index(&self) -> impl Iterator<Item = (u16, &T)>
     {
-        return self.data[0..self.len].iter().map(|n| &n.value).enumerate();
+        let start = match self.first
+        {
+            Some(v) => v,
+            None => 0xFFFF
+        };
+        return LinkedIterIndex { ll: self, current: start, start };
     }
     
     pub fn insert_sorted<F>(&mut self, compare: F, value: T) -> Option<u16>
@@ -260,13 +265,13 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
     }
 }
 
-struct LinkedIter<'a, T: Copy, const N: usize>
+struct LinkedIterMut<'a, T: Copy, const N: usize>
 {
     ll: &'a mut LinkedList<T, N>,
     current: u16,
     start: u16
 }
-impl<'a, T: Copy, const N: usize> Iterator for LinkedIter<'a, T, N>
+impl<'a, T: Copy, const N: usize> Iterator for LinkedIterMut<'a, T, N>
 {
     type Item = &'a mut T;
 
@@ -288,11 +293,42 @@ impl<'a, T: Copy, const N: usize> Iterator for LinkedIter<'a, T, N>
         self.current = current;
         
         // force 'a lifetime
-        // is ok as the original data has lifetime 'a
+        // is ok as the original data has lifetime 'a and mut here will not be used twice
         unsafe 
         {
             let ptr = node as *mut InnerNode<T>;
             return Some(&mut ptr.as_mut::<'a>().unwrap().value);
         }
+    }
+}
+
+struct LinkedIterIndex<'a, T: Copy, const N: usize>
+{
+    ll: &'a LinkedList<T, N>,
+    current: u16,
+    start: u16
+}
+impl<'a, T: Copy, const N: usize> Iterator for LinkedIterIndex<'a, T, N>
+{
+    type Item = (u16, &'a T);
+
+    fn next(&mut self) -> Option<Self::Item>
+    {
+        let mut current = self.current;
+        if current == 0xFFFF
+        {
+            return None;
+        }
+        
+        let node = self.ll.get_node(current).inner;
+        let index = current;
+        
+        current = node.next;
+        if current == self.start
+        {
+            current = 0xFFFF;
+        }
+        self.current = current;
+        return Some((index, &node.value));
     }
 }
