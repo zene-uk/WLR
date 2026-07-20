@@ -38,10 +38,17 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         
         self.write_key_value_force(key, value);
     }
-    /// does not check whether the data has changed or not
+    /// Does not check whether the data has changed or not
     pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V)
     {
         
+    }
+    
+    /// Call after every block of writes
+    #[inline]
+    pub fn flush_state(&mut self) -> bool
+    {
+        return self.state.sync_value(&mut self.partition);
     }
     
     #[must_use]

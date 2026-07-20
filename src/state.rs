@@ -10,6 +10,7 @@ pub struct State<C: NvsConstants, const PAGE_SIZE: u32>
 {
     address: Address<PAGE_SIZE>,
     value: u32,
+    synced: bool,
     _phatom: PhantomData<C>
 }
 
@@ -36,7 +37,7 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
                 if value != 0
                 {
                     let address = Address::from_page_offset(page as u32, i as u32);
-                    return Some(Self { address, value, _phatom: PhantomData });
+                    return Some(Self { address, value, synced: true, _phatom: PhantomData });
                 }
             }
         }
@@ -62,17 +63,14 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
             return None;
         }
         
-        return Some(Self { address: Address(0), value, _phatom: PhantomData });
+        return Some(Self { address: Address(0), value, synced: true, _phatom: PhantomData });
     }
     
-    pub fn update_value<T: NorFlash + 'static>(&mut self, partition: &mut T, value: u32) -> bool
+    pub fn sync_value<T: NorFlash + 'static>(&mut self, partition: &mut T) -> bool
         where [(); T::WRITE_SIZE]:
     {
         // no change
-        if self.value == value
-        {
-            return true;
-        }
+        if self.synced { return true; }
         
         let offset = round_up!(size_of::<u32>(), T::WRITE_SIZE);
         let mut buffer: Padding<u32, { T::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
@@ -103,13 +101,13 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
         }
         
         // write new value
-        buffer.0 = value;
+        buffer.0 = self.value;
         if partition.write(new_addr.0, &bytemuck::bytes_of(&buffer)[..offset]).is_err()
         {
             return false;
         }
-        self.value = value;
         self.address = new_addr;
+        self.synced = true;
         return true;
     }
     
@@ -118,5 +116,13 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
     pub fn get_value(&self) -> u32
     {
         return self.value;
+    }
+    #[inline]
+    pub fn set_value(&mut self, value: u32)
+    {
+        if self.value == value { return; }
+        
+        self.synced = false;
+        self.value = value;
     }
 }
