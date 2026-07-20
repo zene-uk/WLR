@@ -20,15 +20,37 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
     where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        [(); T::WRITE_SIZE]:
+        [(); T::WRITE_SIZE]: ,
+        [(); T::READ_SIZE]: 
 {
-    pub fn write_key_value<V>(&mut self, key: K, value: &V)
+    pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V)
+        where V: PartialEq,
+    {
+        let mut tmp: V = unsafe { MaybeUninit::zeroed().assume_init() };
+        if self.read_key_value(key, &mut tmp) && value == &tmp
+        {
+            return;
+        }
+        
+        self.write_key_value_force(key, value);
+    }
+    /// does not check whether the data has changed or not
+    pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V)
     {
         
     }
     
+    pub fn read_key_value_direct<V: bytemuck::Pod>(&mut self, key: K) -> Option<V>
+    {
+        let mut result: V = unsafe { MaybeUninit::zeroed().assume_init() };
+        if self.read_key_value(key, &mut result)
+        {
+            return Some(result);
+        }
+        
+        return None;
+    }
     pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> bool
-        where [(); T::READ_SIZE]: 
     {
         let tv = match self.key_map.get_table_value(key)
         {
