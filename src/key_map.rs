@@ -1,3 +1,6 @@
+mod iter;
+pub use iter::*;
+
 use core::cmp::Ordering;
 
 use alloc::boxed::Box;
@@ -108,16 +111,18 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return Some(*self.linked_list.get_node(index).as_ref());
     }
     /// if new address is on a page with values already - its value will be greater than the ones already there
-    pub fn update_record(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
+    /// returns the old record address
+    pub fn update_record(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> Option<Address<PAGE_SIZE>>
     {
         let index = *self.key_table.get(&key);
         if index == 0xFFFF
         {
-            return false;
+            return None;
         }
         
         let node = self.linked_list.get_node(index);
         let tv = node.as_ref();
+        let old_record_addr = tv.record_address;
         let old_page = tv.data_address.get_page();
         // index of old next node
         let next_index = node.into_next();
@@ -127,7 +132,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         // actually update value - changing order if necessary
         if !self.linked_list.update_value(tv_cmp, index, value)
         {
-            return false;
+            return None;
         }
         
         // was the first in the page
@@ -153,7 +158,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
             self.page_table.insert(new_page, index);
         }
         
-        return true;
+        return Some(old_record_addr);
     }
     #[must_use]
     /// returns page address algined to write size
@@ -209,31 +214,36 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         };
     }
     #[must_use]
-    /// can include the previous item if it has data on that page
-    pub fn get_page_values(&mut self, page: u32) -> Option<impl Iterator<Item = &mut TableValue<K, PAGE_SIZE>>>
+    /// can include the previous page items if it has data on that page
+    pub fn get_page_values<'a>(&'a mut self, page: u32) -> Option<impl Iterator<Item = TableRecord<'a, K, PAGE_SIZE, WS>>>
     {
-        if page != 0
-        {
-            match self.get_last_index_on_page(page - 1)
+        let index = {
+            if page != 0
             {
-                Some(i) =>
+                match self.get_last_index_on_page(page - 1).or(self.page_table.get(&page).copied())
                 {
-                    return Some(page_filter::<_, _, WS>(self.linked_list.iter_mut_from(i), page));
-                },
-                None => {}
+                    Some(i) =>
+                    {
+                        i
+                    },
+                    None => return None
+                }
             }
-        }
-        
-        let index = match self.page_table.get(&page)
-        {
-            Some(i) => *i,
-            None => return None
+            else
+            {
+                match self.page_table.get(&page)
+                {
+                    Some(i) => *i,
+                    None => return None
+                }
+            }
         };
         
-        return Some(page_filter::<_, _, WS>(self.linked_list.iter_mut_from(index), page));
+        return Some(PageValueIter::new(self, index, page));
+        // return Some(page_filter::<_, _, WS>(self.linked_list.iter_mut_from(index), page));
     }
     #[must_use]
-    pub fn get_remaining_page_space(&self, page: u32) -> u32
+    pub fn get_available_page_space(&self, page: u32) -> u32
     {
         let mut space = PAGE_SIZE;
         
