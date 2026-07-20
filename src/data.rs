@@ -65,7 +65,11 @@ impl<const PAGE_SIZE: u32> From<u32> for Address<PAGE_SIZE>
 pub struct Record<const PAGE_SIZE: u32>
     where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
-    size: u16,
-    key: u16,
-    address: Address<PAGE_SIZE>
+    pub size: u16,
+    pub key: u16,
+    pub address: Address<PAGE_SIZE>
 }
+unsafe impl<const PAGE_SIZE: u32> bytemuck::Zeroable for Record<PAGE_SIZE>
+    where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True {}
+unsafe impl<const PAGE_SIZE: u32> bytemuck::Pod for Record<PAGE_SIZE>
+    where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True {}
