@@ -1,7 +1,7 @@
 use crate::{CheckConst, True};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Address<const PAGE_BIT: u32>(pub u32);
+pub struct Address<const PAGE_SIZE: u32>(pub u32);
 
 impl<const PAGE_SIZE: u32> Address<PAGE_SIZE>
     where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True

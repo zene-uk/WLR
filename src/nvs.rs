@@ -6,10 +6,11 @@ use crate::{CheckConst, NvsConstants, NvsKey, True, data::Address, key_map::KeyM
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        CheckConst<{ K::COUNT < 0xFFFF }>: True
+        CheckConst<{ K::COUNT < 0xFFFF }>: True,
+        [(); T::WRITE_SIZE]:
 {
     partition: T,
-    key_map: KeyMap<K, { T::ERASE_SIZE as u32 }>,
+    key_map: KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
     next_data_address: Address<{ T::ERASE_SIZE as u32 }>,
     next_record_address: Address<{ T::ERASE_SIZE as u32 }>,
     _phantom: PhantomData<C>
@@ -22,14 +23,14 @@ unsafe impl<V: bytemuck::Pod, const N: usize> bytemuck::Pod for Padding<V, N> {}
 
 impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
     where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        CheckConst<{ K::COUNT < 0xFFFF }>: True
+        CheckConst<{ K::COUNT < 0xFFFF }>: True,
+        [(); T::WRITE_SIZE]:
 {
     pub fn write_key_value<V>(&mut self, key: K, value: &V)
     {
         
     }
     
-    /// `V` is aligned by READ_SIZE
     pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> bool
         where [(); T::READ_SIZE]: 
     {

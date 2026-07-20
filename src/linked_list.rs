@@ -139,6 +139,20 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
     }
     
     #[must_use]
+    pub fn get_value<'a>(&'a self, index: u16) -> &'a T
+    {
+        // out of bounds
+        if self.len <= index as usize { panic!(); }
+        return &self.data[index as usize].value;
+    }
+    #[must_use]
+    pub fn get_value_mut<'a>(&'a mut self, index: u16) -> &'a mut T
+    {
+        // out of bounds
+        if self.len <= index as usize { panic!(); }
+        return &mut self.data[index as usize].value;
+    }
+    #[must_use]
     pub fn get_node<'a>(&'a self, index: u16) -> Node<'a, T>
     {
         // out of bounds
