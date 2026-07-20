@@ -48,11 +48,12 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         //      also the number of items moved to make way for a new page will be less than a full page of records
         //      may need to move more if the data pages we are writing to need reorganising
         //      calculate all new records first - then start moving data
-        // then move back records to front if the mapping range is to long - ignore the item we are about to change
+        // then move back records to front if the mapping range is to long - ignore the item we are about to change (and data page if applicable)
         // (repeat until we can add our new record)
         // update state if needed
         // check whether the next data address is on a new page - find next page if needed
         // check whether our data can fit on the page - find next page if needed
+        // update data page record if needed
         // add data
         // add new record
         
@@ -76,6 +77,8 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         //      write back old data
         // if page is too full, increment to next page again
         // throw error if we have filled up our allowed space
+        
+        self.prepare_map(key);
     }
     
     /// Call after every block of writes

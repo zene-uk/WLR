@@ -181,7 +181,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         }
     }
     #[must_use]
-    /// returns page address algined to write size
+    /// returns page address aligned to write size
     pub fn get_next_page_address(&self, page: u32) -> Option<Address<PAGE_SIZE>>
     {
         let index = match self.page_table.get(&page)

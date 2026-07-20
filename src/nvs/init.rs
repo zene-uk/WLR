@@ -20,7 +20,7 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         let mut key_map = KeyMap::new();
         let offset = round_up!(size_of::<Record<{ T::ERASE_SIZE as u32 }>>(), T::WRITE_SIZE);
         
-        let mut next_data_address = Address(0);
+        let mut next_data_page = 0;
         let mut next_record_address = Address(0);
         
         // find all records
@@ -44,7 +44,7 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
                     {
                         // read next u32
                         let value: u32 = *bytemuck::from_bytes(&bytes[(i+size_of::<u32>())..(i+size_of::<u32>()+size_of::<u32>())]);
-                        next_data_address = Address(value);
+                        next_data_page = value;
                     },
                     // unset data - no more records
                     0xFFFF_FFFF =>
@@ -70,6 +70,8 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         
         // create page info
         key_map.initialise();
+        // TODO: change unwrap to use find next page instead
+        let next_data_address = key_map.get_next_page_address(next_data_page).unwrap();
         
         return Some(Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData });
     }
