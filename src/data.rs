@@ -36,6 +36,12 @@ impl<const PAGE_SIZE: u32> Address<PAGE_SIZE>
     {
         return Self(page << Self::PAGE_BIT);
     }
+    #[inline]
+    #[must_use]
+    pub fn from_page_offset(page: u32, offset: u32) -> Self
+    {
+        return Self((page << Self::PAGE_BIT) + (offset & Self::PAGE_BIT_SELECT));
+    }
     
     #[inline]
     #[must_use]
@@ -55,6 +61,7 @@ impl<const PAGE_SIZE: u32> From<u32> for Address<PAGE_SIZE>
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 pub struct Record<const PAGE_SIZE: u32>
     where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {

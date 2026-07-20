@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use enum_table::EnumTable;
 use micromap::Map;
 
-use crate::{CheckConst, NvsKey, True, data::Address, linked_list::LinkedList};
+use crate::{CheckConst, NvsKey, True, data::Address, linked_list::LinkedList, round_up};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
@@ -23,7 +23,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     {
         let end = self.data_address.0 + self.data_size as u32;
         // round up to write size
-        return (((end + ws - 1) / ws) * ws).into();
+        return (round_up!(end, ws)).into();
     }
     #[inline]
     #[must_use]
@@ -264,7 +264,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         {
             let size = node.as_ref().get_size();
             // round up to write size
-            let size = ((size as u32 + WS as u32 - 1) / WS as u32) * WS as u32;
+            let size = round_up!(size as u32, WS as u32);
             space = space.saturating_sub(size);
             
             node = self.linked_list.get_node(node.into_next());

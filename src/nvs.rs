@@ -2,7 +2,7 @@ use core::{marker::PhantomData, mem::MaybeUninit};
 
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{CheckConst, NvsConstants, NvsKey, True, data::Address, key_map::KeyMap};
+use crate::{CheckConst, NvsConstants, NvsKey, Padding, True, data::Address, key_map::KeyMap, state::State};
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
@@ -13,13 +13,9 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     key_map: KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
     next_data_address: Address<{ T::ERASE_SIZE as u32 }>,
     next_record_address: Address<{ T::ERASE_SIZE as u32 }>,
+    state: State<C, { T::ERASE_SIZE as u32 }>,
     _phantom: PhantomData<C>
 }
-
-#[derive(Debug, Clone, Copy)]
-pub struct Padding<V, const N: usize>(V, [u8; N]);
-unsafe impl<V, const N: usize> bytemuck::Zeroable for Padding<V, N> {}
-unsafe impl<V: bytemuck::Pod, const N: usize> bytemuck::Pod for Padding<V, N> {}
 
 impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
     where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,

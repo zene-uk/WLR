@@ -5,14 +5,16 @@
 extern crate alloc;
 
 mod nvs;
+use core::ops::{Add, Div, Sub, Mul};
 use enum_table::Enumable;
 
 pub use crate::nvs::*;
 
-pub mod data;
+mod data;
 // pub use crate::data::*;
 
 mod key_map;
+mod state;
 mod linked_list;
 
 pub trait True {}
@@ -35,7 +37,23 @@ pub trait NvsConstants
 {
     const MAPPING_MAX_RANGE: u8;
     const MAP_PRE_PADDING: u8;
-    const STATE_COPIES: u8;
+    const STATE_PAGES: u8;
     /// From the first page of the map (should be at least `MAPPING_MAX_RANGE`)
     const MAP_POST_PADDING: u8;
 }
+
+// const fn round_up<T: Add<Output = T> + Sub<Output = T> + From<u8> + Mul<Output = T> + Div<Output = T> + Copy>(value: T, align: T) -> T
+// {
+//     return ((value + align - 1u8.into()) / align) * align;
+// }
+macro_rules! round_up {
+    ($value:expr, $align:expr) => {
+        (($value + $align - 1) / $align) * $align
+    };
+}
+pub(crate) use round_up;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Padding<V, const N: usize>(V, [u8; N]);
+unsafe impl<V, const N: usize> bytemuck::Zeroable for Padding<V, N> {}
+unsafe impl<V: bytemuck::Pod, const N: usize> bytemuck::Pod for Padding<V, N> {}
