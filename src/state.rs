@@ -91,7 +91,7 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
             }
         }
         // change in page - T::ERASE_SIZE should be multiple of offset
-        if self.address.get_page_offset() == 0
+        if self.address.is_page_start()
         {
             // erase new page ready for data
             if partition.erase(new_addr.0, new_addr.0 + T::ERASE_SIZE as u32).is_err()

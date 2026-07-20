@@ -37,16 +37,10 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for PageValu
         let tv = node.as_ref();
         
         // check it is on correct page
-        if tv.data_address.get_page() != self.page
+        if !tv.is_on_page(self.page)
         {
-            let na = tv.get_next_address(WS as u32);
-            // must actually have data on the page
-            if na.get_page_offset() == 0 || na.get_page() != self.page
-            {
-                // start and end of data is not on the correct page
-                self.current = current;
-                return None;
-            }
+            self.current = current;
+            return None;
         }
         
         let key = tv.key;

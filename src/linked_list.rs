@@ -166,23 +166,23 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         if self.len <= index as usize { panic!(); }
         return NodeMut { inner: &mut self.data[index as usize] };
     }
-    #[must_use]
-    pub fn iter_mut_from<'a>(&'a mut self, mut index: u16) -> impl Iterator<Item = &'a mut T>
-    {
-        // out of bounds
-        if index as usize >= self.len
-        {
-            return LinkedIterMut { ll: self, current: 0xFFFF, start: 0xFFFF };
-        }
+    // #[must_use]
+    // pub fn iter_mut_from<'a>(&'a mut self, mut index: u16) -> impl Iterator<Item = &'a mut T>
+    // {
+    //     // out of bounds
+    //     if index as usize >= self.len
+    //     {
+    //         return LinkedIterMut { ll: self, current: 0xFFFF, start: 0xFFFF };
+    //     }
         
-        let mut start = 0xFFFF;
-        match self.first
-        {
-            Some(v) => start = v,
-            None => index = 0xFFFF,
-        };
-        return LinkedIterMut { ll: self, current: index, start };
-    }
+    //     let mut start = 0xFFFF;
+    //     match self.first
+    //     {
+    //         Some(v) => start = v,
+    //         None => index = 0xFFFF,
+    //     };
+    //     return LinkedIterMut { ll: self, current: index, start };
+    // }
     #[must_use]
     pub fn iter_index(&self) -> impl Iterator<Item = (u16, &T)>
     {
@@ -279,42 +279,42 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
     }
 }
 
-struct LinkedIterMut<'a, T: Copy, const N: usize>
-{
-    ll: &'a mut LinkedList<T, N>,
-    current: u16,
-    start: u16
-}
-impl<'a, T: Copy, const N: usize> Iterator for LinkedIterMut<'a, T, N>
-{
-    type Item = &'a mut T;
+// struct LinkedIterMut<'a, T: Copy, const N: usize>
+// {
+//     ll: &'a mut LinkedList<T, N>,
+//     current: u16,
+//     start: u16
+// }
+// impl<'a, T: Copy, const N: usize> Iterator for LinkedIterMut<'a, T, N>
+// {
+//     type Item = &'a mut T;
 
-    fn next(&mut self) -> Option<Self::Item>
-    {
-        let mut current = self.current;
-        if current == 0xFFFF
-        {
-            return None;
-        }
+//     fn next(&mut self) -> Option<Self::Item>
+//     {
+//         let mut current = self.current;
+//         if current == 0xFFFF
+//         {
+//             return None;
+//         }
         
-        let node = self.ll.get_node_mut(current).inner;
+//         let node = self.ll.get_node_mut(current).inner;
         
-        current = node.next;
-        if current == self.start
-        {
-            current = 0xFFFF;
-        }
-        self.current = current;
+//         current = node.next;
+//         if current == self.start
+//         {
+//             current = 0xFFFF;
+//         }
+//         self.current = current;
         
-        // force 'a lifetime
-        // is ok as the original data has lifetime 'a and mut here will not be used twice
-        unsafe 
-        {
-            let ptr = node as *mut InnerNode<T>;
-            return Some(&mut ptr.as_mut::<'a>().unwrap().value);
-        }
-    }
-}
+//         // force 'a lifetime
+//         // is ok as the original data has lifetime 'a and mut here will not be used twice
+//         unsafe 
+//         {
+//             let ptr = node as *mut InnerNode<T>;
+//             return Some(&mut ptr.as_mut::<'a>().unwrap().value);
+//         }
+//     }
+// }
 
 struct LinkedIterIndex<'a, T: Copy, const N: usize>
 {

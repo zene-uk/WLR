@@ -9,12 +9,12 @@ impl<const PAGE_SIZE: u32> Address<PAGE_SIZE>
     const PAGE_BIT: u32 = PAGE_SIZE.ilog2();
     const PAGE_BIT_SELECT: u32 = PAGE_SIZE - 1;
     
-    #[inline]
-    #[must_use]
-    pub fn get_partition_offset(self) -> u32
-    {
-        return self.0;
-    }
+    // #[inline]
+    // #[must_use]
+    // pub fn get_partition_offset(self) -> u32
+    // {
+    //     return self.0;
+    // }
     
     #[inline]
     #[must_use]
@@ -45,9 +45,16 @@ impl<const PAGE_SIZE: u32> Address<PAGE_SIZE>
     
     #[inline]
     #[must_use]
+    /// returns the remaining space including this address
     pub fn get_remaining_space(self) -> u32
     {
-        return PAGE_SIZE - self.get_page_offset();
+        return (PAGE_SIZE - self.get_page_offset()) + 1;
+    }
+    #[inline]
+    #[must_use]
+    pub fn is_page_start(self) -> bool
+    {
+        return self.get_page_offset() == 0;
     }
 }
 

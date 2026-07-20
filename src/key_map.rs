@@ -46,6 +46,18 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     {
         return self.data_size;
     }
+    #[inline]
+    #[must_use]
+    pub fn get_end_page(&self) -> u32
+    {
+        return Address::<PAGE_SIZE>(self.data_address.0 + self.data_size as u32 - 1).get_page();
+    }
+    #[inline]
+    #[must_use]
+    pub fn is_on_page(&self, page: u32) -> bool
+    {
+        return self.data_address.get_page() == page || self.get_end_page() == page;
+    }
 }
 
 pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
@@ -75,6 +87,11 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         };
     }
     
+    fn tv_cmp(l: &TableValue<K, PAGE_SIZE>, r: &TableValue<K, PAGE_SIZE>) -> Ordering
+    {
+        return l.data_address.cmp(&r.data_address);
+    }
+    
     /// doesnt update page data
     pub fn add_value(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
     {
@@ -89,7 +106,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         }
         
         let value = TableValue { record_address: ra, data_address: da, data_size: size, key };
-        let index = match self.linked_list.insert_sorted(tv_cmp, value)
+        let index = match self.linked_list.insert_sorted(Self::tv_cmp, value)
         {
             Some(i) => i,
             None => return None
@@ -124,17 +141,29 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         let tv = node.as_ref();
         let old_record_addr = tv.record_address;
         let old_page = tv.data_address.get_page();
+        let old_end_page = tv.get_end_page();
         // index of old next node
         let next_index = node.into_next();
         
         let value = TableValue { record_address: ra, data_address: da, data_size: size, key };
         
         // actually update value - changing order if necessary
-        if !self.linked_list.update_value(tv_cmp, index, value)
+        if !self.linked_list.update_value(Self::tv_cmp, index, value)
         {
             return None;
         }
         
+        // remove page_table entries if necessary
+        self.page_table_old(old_page, index, next_index);
+        self.page_table_old(old_end_page, index, next_index);
+        
+        // add new page to table if this is the first value on that page
+        self.page_table_new(da, size, index);
+        
+        return Some(old_record_addr);
+    }
+    fn page_table_old(&mut self, old_page: u32, index: u16, next_index: u16)
+    {
         // was the first in the page
         let p_start = self.page_table.get_mut(&old_page).unwrap();
         if p_start == &index
@@ -150,93 +179,42 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
                 self.page_table.remove(&old_page);
             }
         }
-        
-        // add new page to table if this is the first value on that page
-        let new_page = da.get_page();
-        if !self.page_table.contains_key(&new_page)
-        {
-            self.page_table.insert(new_page, index);
-        }
-        
-        return Some(old_record_addr);
     }
     #[must_use]
     /// returns page address algined to write size
     pub fn get_next_page_address(&self, page: u32) -> Option<Address<PAGE_SIZE>>
     {
-        let addr = self.get_next_page_address_inner(page);
+        let index = match self.page_table.get(&page)
+        {
+            Some(i) => *i,
+            None => return Some(Address::from_page(page)),
+        };
+        
+        let mut node = self.linked_list.get_node(index);
+        // somethings wrong if the first node is not actually on the page
+        let mut next_address = Address(0);
+        while node.as_ref().is_on_page(page)
+        {
+            next_address = node.as_ref().get_next_address(WS as u32);
+            node = self.linked_list.get_node(node.into_next());
+        }
         
         // no more space on page
-        if addr.get_page() != page
+        if next_address.get_page() != page
         {
             return None;
         }
         
-        // there could be data from the previous page wrapping over
-        // (if page_offset == 0, then we couldnt find any entries on this page)
-        if addr.get_page_offset() == 0 && page != 0
-        {
-            let pre_addr = self.get_next_page_address_inner(page - 1);
-            
-            // this could just be to first byte on this page
-            // if the last page is full but doesnt overflow
-            if pre_addr.get_page() == page
-            {
-                return Some(pre_addr);
-            }
-        }
-        
-        return Some(addr);
-    }
-    fn get_last_index_on_page<'a>(&'a self, page: u32) -> Option<u16>
-    {
-        let index = match self.page_table.get(&page)
-        {
-            Some(i) => *i,
-            None => return None,
-        };
-        
-        let mut node = self.linked_list.get_node(index);
-        while node.as_ref().data_address.get_page() == page
-        {
-            node = self.linked_list.get_node(node.into_next());
-        }
-        // exits on first not on page - so previous is last on page
-        return Some(node.into_previous());
-        // return Some(self.linked_list.get_value(node.into_previous()));
-    }
-    fn get_next_page_address_inner(&self, page: u32) -> Address<PAGE_SIZE>
-    {
-        return match self.get_last_index_on_page(page)
-        {
-            Some(i) => self.linked_list.get_value(i).get_next_address(WS as u32),
-            None => Address::from_page(page)
-        };
+        return Some(next_address);
     }
     #[must_use]
     /// can include the previous page items if it has data on that page
     pub fn get_page_values<'a>(&'a mut self, page: u32) -> Option<impl Iterator<Item = TableRecord<'a, K, PAGE_SIZE, WS>>>
     {
-        let index = {
-            if page != 0
-            {
-                match self.get_last_index_on_page(page - 1).or(self.page_table.get(&page).copied())
-                {
-                    Some(i) =>
-                    {
-                        i
-                    },
-                    None => return None
-                }
-            }
-            else
-            {
-                match self.page_table.get(&page)
-                {
-                    Some(i) => *i,
-                    None => return None
-                }
-            }
+        let index = match self.page_table.get(&page)
+        {
+            Some(i) => *i,
+            None => return None
         };
         
         return Some(PageValueIter::new(self, index, page));
@@ -246,19 +224,6 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     pub fn get_available_page_space(&self, page: u32) -> u32
     {
         let mut space = PAGE_SIZE;
-        
-        // remove overflow from last page if there is any
-        if page != 0
-        {
-            if let Some(i) = self.get_last_index_on_page(page - 1)
-            {
-                let tvna = self.linked_list.get_value(i).get_next_address(WS as u32);
-                if tvna.get_page() == page
-                {
-                    space -= tvna.get_page_offset();
-                }
-            }
-        }
         
         let index = match self.page_table.get(&page)
         {
@@ -270,11 +235,22 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         // includes the overflow space as that would end up being on
         // this page if the contents are rewritten
         let mut node = self.linked_list.get_node(index);
-        while node.as_ref().data_address.get_page() == page
+        while node.as_ref().is_on_page(page)
         {
-            let size = node.as_ref().get_size();
-            // round up to write size
-            let size = round_up!(size as u32, WS as u32);
+            let tv = node.as_ref();
+            
+            let size = match tv.data_address.get_page() != page
+            {
+                // if we dont start on the current page - then only count the data on this page
+                // (this is an overflow entry)
+                true => tv.get_next_address(WS as u32).get_page_offset(),
+                false =>
+                {
+                    let size = node.as_ref().data_size;
+                    // round up to write size
+                    round_up!(size as u32, WS as u32)
+                }
+            };
             space = space.saturating_sub(size);
             
             node = self.linked_list.get_node(node.into_next());
@@ -292,6 +268,12 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
             None => return false
         };
         
+        self.page_table_new(da, size, index);
+        
+        return true;
+    }
+    fn page_table_new(&mut self, da: Address<PAGE_SIZE>, size: u16, index: u16)
+    {
         // add page if it doesnt exist already
         let page = da.get_page();
         if !self.page_table.contains_key(&page)
@@ -299,7 +281,16 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
             self.page_table.insert(page, index);
         }
         
-        return true;
+        // dont need to check that next page is valid
+        // this function shouldnt be called if the data goes over the end of the partition
+        
+        // check if last byte is on new page
+        let end_page = Address::<PAGE_SIZE>(da.0 + size as u32 - 1).get_page();
+        // overflow page - add it to page_table
+        if end_page != page && !self.page_table.contains_key(&end_page)
+        {
+            self.page_table.insert(end_page, index);
+        }
     }
     
     pub fn initialise(&mut self)
@@ -318,26 +309,4 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
             }
         }
     }
-}
-
-/// only allows items who start of end on a page
-fn page_filter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>(iter: impl Iterator<Item = &'a mut TableValue<K, PAGE_SIZE>>, page: u32)
-    -> impl Iterator<Item = &'a mut TableValue<K, PAGE_SIZE>>
-    where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
-{
-    return iter.take_while(move |v|
-    {
-        if v.data_address.get_page() == page
-        {
-            return true;
-        }
-        // must actually have data on the page
-        let na = v.get_next_address(WS as u32);
-        return na.get_page_offset() != 0 && na.get_page() == page;
-    });
-}
-
-fn tv_cmp<K: NvsKey, const PAGE_SIZE: u32>(l: &TableValue<K, PAGE_SIZE>, r: &TableValue<K, PAGE_SIZE>) -> Ordering
-{
-    return l.data_address.cmp(&r.data_address);
 }
