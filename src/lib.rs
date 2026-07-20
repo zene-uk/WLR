@@ -33,8 +33,9 @@ pub trait NvsKey: Enumable
 
 pub trait NvsConstants
 {
-    const MAPPING_RANGE: u8;
+    const MAPPING_MAX_RANGE: u8;
     const MAP_PRE_PADDING: u8;
     const STATE_COPIES: u8;
+    /// From the first page of the map (should be at least `MAPPING_MAX_RANGE`)
     const MAP_POST_PADDING: u8;
 }
