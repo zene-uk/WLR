@@ -5,7 +5,6 @@
 extern crate alloc;
 
 mod nvs;
-use core::ops::{Add, Div, Sub, Mul};
 use enum_table::Enumable;
 
 pub use crate::nvs::*;
@@ -42,10 +41,6 @@ pub trait NvsConstants
     const MAP_POST_PADDING: u8;
 }
 
-// const fn round_up<T: Add<Output = T> + Sub<Output = T> + From<u8> + Mul<Output = T> + Div<Output = T> + Copy>(value: T, align: T) -> T
-// {
-//     return ((value + align - 1u8.into()) / align) * align;
-// }
 macro_rules! round_up {
     ($value:expr, $align:expr) => {
         (($value + $align - 1) / $align) * $align
