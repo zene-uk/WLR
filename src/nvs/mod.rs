@@ -139,4 +139,10 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         
         return true;
     }
+    
+    fn erase_page(&mut self, page: u32) -> bool
+    {
+        let offset = page * T::ERASE_SIZE as u32;
+        return self.partition.erase(offset, offset + T::ERASE_SIZE as u32).is_ok();
+    }
 }

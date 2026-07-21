@@ -258,6 +258,12 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         
         return space;
     }
+    #[must_use]
+    pub fn is_page_free(&self, page: u32) -> bool
+    {
+        // includes overflow entries as well
+        return !self.page_table.contains_key(&page);
+    }
     
     /// if new value is on a page with values already - its address will be greater
     pub fn add_value_page(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool

@@ -84,11 +84,6 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
         if new_addr.get_page() >= C::STATE_PAGES as u32
         {
             new_addr = Address::from_page_offset(0, 0);
-            // erase new page ready for data
-            if partition.erase(0, T::ERASE_SIZE as u32).is_err()
-            {
-                return false;
-            }
         }
         // change in page - T::ERASE_SIZE should be multiple of offset
         if self.address.is_page_start()
