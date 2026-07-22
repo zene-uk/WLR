@@ -59,6 +59,12 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             return PreparePage::Repeat;
         }
         
+        // was only called to fix page wrap
+        if data_size == 0
+        {
+            return PreparePage::NextAddress(*self.next_data_address);
+        }
+        
         // brand new empty page
         if self.key_map.is_page_free(page)
         {

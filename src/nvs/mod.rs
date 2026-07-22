@@ -124,8 +124,27 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     
     /// Call after every block of writes
     #[inline]
-    pub fn flush_state(&mut self) -> bool
+    pub fn flush(&mut self) -> bool
     {
+        // write current data page
+        let mut shadow = self.as_shadow(|_| false);
+        // retain this order
+        if !shadow.prepare_map()
+        {
+            return false;
+        }
+        // this is only called to make sure the value prepare_map
+        // left in next_data_address is in the partition
+        if shadow.prepare_data_page(0, 0).is_none()
+        {
+            return false;
+        }
+        if !shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.next_data_address.get_page()) })
+        {
+            return false;
+        }
+        
+        // write state value
         return self.state.sync_value(&mut self.partition);
     }
     
