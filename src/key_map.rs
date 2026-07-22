@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 use enum_table::EnumTable;
 use micromap::Map;
 
-use crate::{NvsKey, data::Address, linked_list::LinkedList, round_up};
+use crate::{NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
 // use crate::{CheckConst, True};
 
 #[derive(Debug, Clone, Copy)]
@@ -19,7 +19,7 @@ pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
     key: K
 }
 impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
-    where //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     #[inline]
     #[must_use]
@@ -37,9 +37,9 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     }
     #[inline]
     #[must_use]
-    pub fn get_record(&self) -> Address<PAGE_SIZE>
+    pub fn get_record(&self) -> Record<PAGE_SIZE>
     {
-        return self.record_address;
+        return Record { size: self.data_size, key: self.key.get_key_value(), address: self.data_address };
     }
     #[inline]
     #[must_use]
