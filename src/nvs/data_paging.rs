@@ -147,13 +147,13 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             }
             
             let tv = tr.get_current_value();
+            let record = tv.to_record_new_addr(addr);
             if !NvsShadow::<_, _, C, F>::write_record(self.partition, self.next_record_address, tv, addr, unused_map_page)
             {
                 return false;
             }
             // and update map
-            let size = tv.get_size();
-            if tr.key_map.update_record(tr.get_key(), rec_addr, addr, size).is_none()
+            if tr.key_map.update_record(record, rec_addr).is_none()
             {
                 return false;
             }
@@ -193,6 +193,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         *self.next_data_address = Address(self.next_data_address.0 + size as u32);
         return true;
     }
+    #[must_use]
     fn get_tv_data<'b>(partition: &mut T, tv: &TableValue<K, { C::PAGE_SIZE }>, page_data: &'b [u8], page: u32) -> Option<(&'b [u8], Box<[u8]>)>
     {
         let overflow_size = tv.get_overflow_size(C::WRITE_SIZE as u32) as usize;

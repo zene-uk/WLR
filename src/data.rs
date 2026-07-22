@@ -1,3 +1,5 @@
+use crate::NvsKey;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Address<const PAGE_SIZE: u32>(pub u32);
 
@@ -73,3 +75,12 @@ pub struct Record<const PAGE_SIZE: u32>
 }
 unsafe impl<const PAGE_SIZE: u32> bytemuck::Zeroable for Record<PAGE_SIZE> {}
 unsafe impl<const PAGE_SIZE: u32> bytemuck::Pod for Record<PAGE_SIZE> {}
+impl<const PAGE_SIZE: u32> Record<PAGE_SIZE>
+{
+    #[inline]
+    #[must_use]
+    pub fn get_key<K: NvsKey>(&self) -> K
+    {
+        return K::from_key_value(self.key);
+    }
+}

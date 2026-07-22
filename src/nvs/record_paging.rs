@@ -58,6 +58,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     
     /// It must be ok to write to next_record_address and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
+    /// 
+    /// Only writes the records data, does not update the key_map
     pub fn write_record(partition: &mut T, nra: &mut Address<{ C::PAGE_SIZE }>,
         record: &TableValue<K, { C::PAGE_SIZE }>, new_addr: Address<{ C::PAGE_SIZE }>,
         unused_map_page: u32) -> bool
@@ -87,5 +89,15 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         // next address
         *nra = Address(addr.0 + Self::RECORD_OFFSET as u32);
         return true;
+    }
+    /// It must be ok to write to next_record_address and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
+    /// 
+    /// Only writes the records data, does not update the key_map
+    pub fn write_new_record(&mut self, record: Record<{ C::PAGE_SIZE }>) -> bool
+    {
+        // sets the old record address to 0 and the unused page to 0 - so that it wont try to clear the old record as it does not exist
+        let tv = TableValue::from_record(record, Address(0));
+        return Self::write_record(self.partition, self.next_record_address, &tv, record.address, 0);
     }
 }

@@ -69,7 +69,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
                         let record: Record<{ C::PAGE_SIZE }> = 
                             *bytemuck::from_bytes(&bytes[i..(i+size_of::<Record<{ C::PAGE_SIZE }>>())]);
                         let ra = Address::from_page_offset(page, i as u32);
-                        if !key_map.add_value(K::from_key_value(record.key), ra, record.address, record.size)
+                        if !key_map.add_value(record, ra)
                         {
                             return None;
                         }

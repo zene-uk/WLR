@@ -20,6 +20,13 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
 {
     #[inline]
     #[must_use]
+    pub fn from_record(record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Self
+    {
+        return Self { record_address: ra, data_address: record.address, data_size: record.size, key: record.get_key() };
+    }
+    
+    #[inline]
+    #[must_use]
     pub fn get_next_address(&self, ws: u32) -> Address<PAGE_SIZE>
     {
         let end = self.data_address.0 + self.data_size as u32;
@@ -111,19 +118,20 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     
     /// doesnt update page data
-    pub fn add_value(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
+    pub fn add_value(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> bool
     {
-        return self.add_value_inner(key, ra, da, size).is_some();
+        return self.add_value_inner(record, ra).is_some();
     }
-    fn add_value_inner(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> Option<u16>
+    fn add_value_inner(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Option<u16>
     {
+        let key = record.get_key();
         // cannot have duplicate keys
         if self.key_table.get(&key) == &0xFFFF
         {
             return None;
         }
         
-        let value = TableValue { record_address: ra, data_address: da, data_size: size, key };
+        let value = TableValue::from_record(record, ra);
         let index = match self.linked_list.insert_sorted(Self::tv_cmp, value)
         {
             Some(i) => i,
@@ -147,8 +155,9 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     /// if new address is on a page with values already - its value will be greater than the ones already there
     /// returns the old record address
-    pub fn update_record(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> Option<Address<PAGE_SIZE>>
+    pub fn update_record(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Option<Address<PAGE_SIZE>>
     {
+        let key = record.get_key();
         let index = *self.key_table.get(&key);
         if index == 0xFFFF
         {
@@ -163,7 +172,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         // index of old next node
         let next_index = node.into_next();
         
-        let value = TableValue { record_address: ra, data_address: da, data_size: size, key };
+        let value = TableValue::from_record(record, ra);
         
         // actually update value - changing order if necessary
         if !self.linked_list.update_value(Self::tv_cmp, index, value)
@@ -176,7 +185,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         self.page_table_old(old_end_page, index, next_index);
         
         // add new page to table if this is the first value on that page
-        self.page_table_new(da, size, index);
+        self.page_table_new(record.address, record.size, index);
         
         return Some(old_record_addr);
     }
@@ -285,15 +294,15 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     
     /// if new value is on a page with values already - its address will be greater
-    pub fn add_value_page(&mut self, key: K, ra: Address<PAGE_SIZE>, da: Address<PAGE_SIZE>, size: u16) -> bool
+    pub fn add_value_page(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> bool
     {
-        let index = match self.add_value_inner(key, ra, da, size)
+        let index = match self.add_value_inner(record, ra)
         {
             Some(i) => i,
             None => return false
         };
         
-        self.page_table_new(da, size, index);
+        self.page_table_new(record.address, record.size, index);
         
         return true;
     }
