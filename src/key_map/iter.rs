@@ -1,9 +1,6 @@
 use crate::{NvsKey, key_map::{KeyMap, TableValue}};
-// use crate::{CheckConst, True};
 
 pub(super) struct PageValueIter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
-    // where [(); K::COUNT]: ,
-        // CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
 {
     key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>,
     current: u16,
@@ -12,8 +9,6 @@ pub(super) struct PageValueIter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: u
 }
 
 impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> PageValueIter<'a, K, PAGE_SIZE, WS>
-    // where [(); K::COUNT]: ,
-        // CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
 {
     pub fn new(key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>, start: u16, page: u32) -> Self
     {
@@ -21,8 +16,6 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> PageValueIter<'a, K, 
     }
 }
 impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for PageValueIter<'a, K, PAGE_SIZE, WS>
-    // where [(); K::COUNT]: ,
-        // CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
 {
     type Item = TableRecord<'a, K, PAGE_SIZE, WS>;
 
@@ -66,16 +59,12 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for PageValu
 }
 
 pub struct TableRecord<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
-    // where [(); K::COUNT]: ,
-        // CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
 {
     pub key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>,
     key: K,
     index: u16
 }
 impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> TableRecord<'a, K, PAGE_SIZE, WS>
-    // where [(); K::COUNT]: ,
-        // CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
 {
     #[inline]
     #[must_use]

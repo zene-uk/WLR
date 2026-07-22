@@ -5,15 +5,8 @@ use bytemuck::Zeroable;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsKey, Padding, data::{Address, Record}, key_map::{KeyMap, TableValue}, round_up, state::State};
-// use crate::{CheckConst, True};
 
 pub(super) struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
-    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        //CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        // [(); T::WRITE_SIZE]: ,
-        // [(); T::READ_SIZE]: ,
-        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        // [(); K::COUNT]: 
 {
     pub partition: &'a mut T,
     pub key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
@@ -25,12 +18,6 @@ pub(super) struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K
 }
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
-    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        //CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        // [(); T::WRITE_SIZE]: ,
-        // [(); T::READ_SIZE]: ,
-        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        // [(); K::COUNT]: 
 {
     const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), T::WRITE_SIZE);
     

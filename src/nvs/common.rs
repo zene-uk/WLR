@@ -2,15 +2,8 @@ use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsKey, data::Address, paging::NvsShadow};
-// use crate::{CheckConst, True};
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
-    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        // [(); T::WRITE_SIZE]: ,
-        // [(); T::READ_SIZE]: ,
-        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        // [(); K::COUNT]: 
 {
     pub fn erase_page(&mut self, page: u32) -> bool
     {

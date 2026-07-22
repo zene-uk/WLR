@@ -1,10 +1,7 @@
-// use crate::{CheckConst, True};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Address<const PAGE_SIZE: u32>(pub u32);
 
 impl<const PAGE_SIZE: u32> Address<PAGE_SIZE>
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     const PAGE_BIT: u32 = PAGE_SIZE.ilog2();
     const PAGE_BIT_SELECT: u32 = PAGE_SIZE - 1;
@@ -59,7 +56,6 @@ impl<const PAGE_SIZE: u32> Address<PAGE_SIZE>
 }
 
 impl<const PAGE_SIZE: u32> From<u32> for Address<PAGE_SIZE>
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     fn from(value: u32) -> Self
     {
@@ -70,13 +66,10 @@ impl<const PAGE_SIZE: u32> From<u32> for Address<PAGE_SIZE>
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Record<const PAGE_SIZE: u32>
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     pub size: u16,
     pub key: u16,
     pub address: Address<PAGE_SIZE>
 }
 unsafe impl<const PAGE_SIZE: u32> bytemuck::Zeroable for Record<PAGE_SIZE> {}
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True {}
 unsafe impl<const PAGE_SIZE: u32> bytemuck::Pod for Record<PAGE_SIZE> {}
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True {}

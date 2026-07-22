@@ -4,10 +4,8 @@ use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, Padding, data::Address, round_up};
-// use crate::{CheckConst, True};
 
 pub struct State<T: NorFlash, C: NvsConstants, const PAGE_SIZE: u32>
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     address: Address<PAGE_SIZE>,
     value: u32,
@@ -16,8 +14,6 @@ pub struct State<T: NorFlash, C: NvsConstants, const PAGE_SIZE: u32>
 }
 
 impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, PAGE_SIZE>
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
-    // where [(); T::WRITE_SIZE]:
 {
     const OFFSET: usize = round_up!(size_of::<u32>(), T::WRITE_SIZE);
     

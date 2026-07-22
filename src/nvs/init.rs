@@ -4,15 +4,8 @@ use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::{Nvs, NvsConstants, NvsKey, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
-// use crate::{CheckConst, True};
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
-    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        // [(); T::WRITE_SIZE]: ,
-        // [(); T::READ_SIZE]: ,
-        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        // [(); K::COUNT]: 
 {
     const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), T::WRITE_SIZE);
     

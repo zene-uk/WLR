@@ -2,13 +2,11 @@ mod iter;
 pub use iter::*;
 
 use core::cmp::Ordering;
-
 use alloc::boxed::Box;
 use enum_table::EnumTable;
 use micromap::Map;
 
 use crate::{NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
-// use crate::{CheckConst, True};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
@@ -19,7 +17,6 @@ pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
     key: K
 }
 impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
-    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     #[inline]
     #[must_use]
@@ -88,9 +85,6 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
 }
 
 pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
-    // where [(); K::COUNT]: ,
-        //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
-        // CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
     // index by key
     key_table: Box<EnumTable<K, u16, { K::LEN }>>,
@@ -101,9 +95,6 @@ pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
 }
 
 impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
-    // where [(); K::COUNT]: ,
-        //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
-        // CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
     pub fn new() -> Self
     {

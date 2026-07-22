@@ -1,6 +1,5 @@
 #![no_std]
 #![allow(incomplete_features)]
-// #![feature(generic_const_exprs)]
 #![feature(min_generic_const_args)]
 
 extern crate alloc;
@@ -16,10 +15,6 @@ mod data;
 mod key_map;
 mod state;
 mod linked_list;
-
-// pub trait True {}
-// pub struct CheckConst<const B: bool>;
-// impl True for CheckConst<true> {}
 
 pub trait NvsKey: Enumable + PartialEq
 {

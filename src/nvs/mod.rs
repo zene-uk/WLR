@@ -3,19 +3,11 @@ pub mod paging;
 mod common;
 
 use core::{marker::PhantomData, mem::MaybeUninit};
-
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsKey, Padding, data::Address, key_map::KeyMap, paging::NvsShadow, round_up, state::State};
-// use crate::{CheckConst, True};
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
-    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        // [(); T::WRITE_SIZE]: ,
-        // [(); T::READ_SIZE]: ,
-        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        // [(); K::COUNT]: 
 {
     partition: T,
     key_map: KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
@@ -26,12 +18,6 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 }
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
-    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        // [(); T::WRITE_SIZE]: ,
-        // [(); T::READ_SIZE]: ,
-        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        // [(); K::COUNT]: 
 {
     fn as_shadow<'a, F: Fn(K) -> bool>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
