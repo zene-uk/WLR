@@ -25,7 +25,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         if !self.page_in_map_padding(page)
         {
             // plus one inside so that it wraps around for us
-            page = Self::get_last_map_padding_page(self.state.get_value() + 1);
+            page = Self::get_last_map_padding_page(self.state.get_new_value() + 1);
         }
         
         *self.next_data_address = Address::from_page(page);

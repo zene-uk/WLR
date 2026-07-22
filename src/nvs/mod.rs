@@ -106,6 +106,9 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // prepare next_record_address
         shadow.prepare_map()?;
         let data_addr;
+        // call first time so that any potential page moves in write_entry_data
+        // can use the old pre map padding pages
+        shadow.state.shift_tmp_to_value();
         
         // actually write the data - this may change next_record_address
         // out is already aligned by WRITE_SIZE
@@ -123,6 +126,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             
             data_addr = shadow.write_entry_data(v.as_bytes(size), &[], 0)?;
         }
+        // call again in case prepare_map was called within write_entry_data
+        shadow.state.shift_tmp_to_value();
         
         // write and update the record
         match shadow.key_map.get_table_value(key)

@@ -23,21 +23,19 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         // no longer mutable
         let page = page;
         
-        // make sure our next data address is not writing to a page about to be moved
-        let back_map_page = self.state.get_value();
+        let back_map_page = self.state.get_new_value();
         let move_records = page - back_map_page >= C::MAPPING_MAX_RANGE as u32;
         if move_records
         {
-            let last_padding_page = Self::get_last_map_padding_page(back_map_page + 1);
-            // use current back page so we dont write over records that need to be moved
-            let first_padding_page = Self::get_first_map_padding_page(back_map_page);
-            while {
-                let data_page = self.next_data_address.get_page();
-                Self::page_in_range(data_page, first_padding_page, last_padding_page)
-            }
-            {
-                self.next_data_page();
-            }
+            // set tmp value here so it moves along for recursions - but still leaves the old records
+            self.state.set_tmp_value(back_map_page + 1);
+        }
+        
+        // make sure our next data address is not writing to a page about to be moved
+        // out tmp value change will now make this function true if in the new map padding pages
+        while self.page_in_map_padding(self.next_data_address.get_page())
+        {
+            self.next_data_page();
         }
         
         // only move entries if we need to use the page - new values will never be written within the padding
@@ -54,9 +52,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             self.move_data_page(page, true, unused_map_page)?;
         }
         
-        // recalculate these as they may have changed due to recursion in move_data_page
-        let back_map_page = self.state.get_value();
-        let move_records = page - back_map_page >= C::MAPPING_MAX_RANGE as u32;
+        // dont recalculate move_records as if they needed moving, another prepare_map call would have dont it
         // dont need to move old records forward
         if !move_records
         {

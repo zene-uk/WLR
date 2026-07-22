@@ -24,7 +24,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         }
         
         let state = State::init(&mut partition)?;
-        let record_page = state.get_value();
+        let record_page = state.get_old_value();
         
         let mut key_map = KeyMap::new();
         

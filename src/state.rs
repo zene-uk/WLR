@@ -9,6 +9,7 @@ pub struct State<T: NorFlash, C: NvsConstants, const PAGE_SIZE: u32>
 {
     address: Address<PAGE_SIZE>,
     value: u32,
+    tmp_value: u32,
     synced: bool,
     _phatom: PhantomData<(C, T)>
 }
@@ -32,7 +33,7 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
                 if value != 0
                 {
                     let address = Address::from_page_offset(page as u32, i as u32);
-                    return Ok(Self { address, value, synced: true, _phatom: PhantomData });
+                    return Ok(Self { address, value, tmp_value: value, synced: true, _phatom: PhantomData });
                 }
             }
         }
@@ -50,7 +51,7 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
         buffer.0 = value;
         partition.write(0, buffer.as_bytes(Self::OFFSET))?;
         
-        return Ok(Self { address: Address(0), value, synced: true, _phatom: PhantomData });
+        return Ok(Self { address: Address(0), value, tmp_value: value, synced: true, _phatom: PhantomData });
     }
     
     pub fn sync_value(&mut self, partition: &mut T) -> Result<(), T::Error>
@@ -84,16 +85,26 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
     
     #[inline]
     #[must_use]
-    pub fn get_value(&self) -> u32
+    pub fn get_new_value(&self) -> u32
+    {
+        return self.tmp_value;
+    }
+    #[inline]
+    #[must_use]
+    pub fn get_old_value(&self) -> u32
     {
         return self.value;
     }
     #[inline]
-    pub fn set_value(&mut self, value: u32)
+    pub fn set_tmp_value(&mut self, value: u32)
     {
         if self.value == value { return; }
         
         self.synced = false;
-        self.value = value;
+        self.tmp_value = value;
+    }
+    pub fn shift_tmp_to_value(&mut self)
+    {
+        self.value = self.tmp_value;
     }
 }

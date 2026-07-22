@@ -28,9 +28,9 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     #[must_use]
     pub fn page_in_map_padding(&self, page: u32) -> bool
     {
-        let back_map_page = self.state.get_value();
-        let last_padding_page = Self::get_last_map_padding_page(back_map_page);
-        let first_padding_page = Self::get_first_map_padding_page(back_map_page);
+        // the new and old or incase we are in the middle of moving map pages
+        let last_padding_page = Self::get_last_map_padding_page(self.state.get_new_value());
+        let first_padding_page = Self::get_first_map_padding_page(self.state.get_old_value());
         
         return Self::page_in_range(page, first_padding_page, last_padding_page);
     }
