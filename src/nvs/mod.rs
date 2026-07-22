@@ -14,7 +14,7 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     key_map: KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
     next_data_address: Address<{ C::PAGE_SIZE }>,
     next_record_address: Address<{ C::PAGE_SIZE }>,
-    state: State<T, C, { C::PAGE_SIZE }>,
+    state: State<T, C>,
     _phantom: PhantomData<C>
 }
 struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
@@ -23,7 +23,7 @@ struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
     key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
     next_data_address: &'a mut Address<{ C::PAGE_SIZE }>,
     next_record_address: &'a mut Address<{ C::PAGE_SIZE }>,
-    state: &'a mut State<T, C, { C::PAGE_SIZE }>,
+    state: &'a mut State<T, C>,
     ignore: F,
     _phantom: PhantomData<C>
 }
@@ -35,7 +35,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
         next_data_address: &'a mut Address<{ C::PAGE_SIZE }>,
         next_record_address: &'a mut Address<{ C::PAGE_SIZE }>,
-        state: &'a mut State<T, C, { C::PAGE_SIZE }>,
+        state: &'a mut State<T, C>,
         ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
         return NvsShadow { partition, key_map, next_data_address, next_record_address, state, ignore, _phantom: PhantomData };

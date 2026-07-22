@@ -71,7 +71,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     
     #[must_use]
     #[inline]
-    pub fn is_in_old_map_page(state: &State<T, C, { C::PAGE_SIZE }>, page: u32) -> bool
+    pub fn is_in_old_map_page(state: &State<T, C>, page: u32) -> bool
     {
         let new_first_page = state.get_new_value();
         let old_first_page = state.get_old_value();

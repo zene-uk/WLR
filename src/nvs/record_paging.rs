@@ -72,7 +72,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// 
     /// Only writes the record data, does not update the key_map
     #[must_use]
-    pub fn write_record(partition: &mut T, state: &State<T, C, { C::PAGE_SIZE }>, nra: &mut Address<{ C::PAGE_SIZE }>,
+    pub fn write_record(partition: &mut T, state: &State<T, C>, nra: &mut Address<{ C::PAGE_SIZE }>,
         record: &TableValue<K, { C::PAGE_SIZE }>, new_addr: Address<{ C::PAGE_SIZE }>) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
     {
         let mut write_data: Padding<Record<{ C::PAGE_SIZE }>, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };

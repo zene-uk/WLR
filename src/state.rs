@@ -5,16 +5,16 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsError, NvsKey, Padding, data::Address, map_err, round_up};
 
-pub struct State<T: NorFlash, C: NvsConstants, const PAGE_SIZE: u32>
+pub struct State<T: NorFlash, C: NvsConstants>
 {
-    address: Address<PAGE_SIZE>,
+    address: Address<{ C::PAGE_SIZE }>,
     value: u32,
     tmp_value: u32,
     synced: bool,
     _phatom: PhantomData<(C, T)>
 }
 
-impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, PAGE_SIZE>
+impl<T: NorFlash, C: NvsConstants + 'static> State<T, C>
 {
     const OFFSET: usize = round_up!(size_of::<u32>(), T::WRITE_SIZE);
     
@@ -25,7 +25,7 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
         for page in 0..C::STATE_PAGES
         {
             // read page
-            map_err!{partition.read(Address::<PAGE_SIZE>::from_page(page as u32).0, &mut bytes)}?;
+            map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
             
             for i in (0..T::ERASE_SIZE).step_by(Self::OFFSET)
             {
