@@ -1,3 +1,5 @@
+use core::ops::{Add, AddAssign};
+
 use crate::NvsKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -62,6 +64,22 @@ impl<const PAGE_SIZE: u32> From<u32> for Address<PAGE_SIZE>
     fn from(value: u32) -> Self
     {
         return Self(value);
+    }
+}
+impl<const PAGE_SIZE: u32> Add<u32> for Address<PAGE_SIZE>
+{
+    type Output = Self;
+
+    fn add(self, rhs: u32) -> Self
+    {
+        return Self(self.0 + rhs);
+    }
+}
+impl<const PAGE_SIZE: u32> AddAssign<u32> for Address<PAGE_SIZE>
+{
+    fn add_assign(&mut self, rhs: u32)
+    {
+        self.0 += rhs;
     }
 }
 

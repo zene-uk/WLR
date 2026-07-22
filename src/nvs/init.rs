@@ -14,7 +14,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     {
         // constants do not match
         if T::ERASE_SIZE != C::PAGE_SIZE as usize || T::WRITE_SIZE != C::WRITE_SIZE ||
-            T::READ_SIZE != C::READ_SIZE || K::COUNT != K::LEN
+            T::READ_SIZE != C::READ_SIZE || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize
         {
             panic!();
         }
@@ -80,10 +80,26 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         // create page info
         key_map.initialise();
-        // TODO: change unwrap to use find next page instead
-        let next_data_address = key_map.get_next_page_address(next_data_page).unwrap();
         
-        return Some(Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData });
+        let mut run_next_page = false;
+        let next_data_address = match key_map.get_page_next_address(next_data_page)
+        {
+            Some(a) => a,
+            None =>
+            {
+                run_next_page = true;
+                Address::from_page(next_data_page)
+            }
+        };
+        
+        let mut res = Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData };
+        // get next page
+        if run_next_page
+        {
+            let mut shadow = res.as_shadow(|_| false);
+            shadow.next_data_page();
+        }
+        return Some(res);
     }
     #[must_use]
     pub fn new(mut partition: T) -> Option<Self>
@@ -91,7 +107,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let mut key_map = KeyMap::new();
         key_map.initialise();
         
-        let next_data_address = Address::from_page(C::STATE_PAGES as u32 + C::MAP_POST_PADDING as u32);
+        let next_data_address = Address::from_page(C::STATE_PAGES as u32 + 1 + C::MAP_POST_PADDING as u32);
         let next_record_address = Address::from_page(C::STATE_PAGES as u32);
         
         // erase initial record page

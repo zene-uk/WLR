@@ -107,7 +107,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // out is already aligned by WRITE_SIZE
         if size_of::<V>() % T::WRITE_SIZE == 0
         {
-            shadow.write_entry_data(bytemuck::bytes_of(value), &[]);
+            shadow.write_entry_data(bytemuck::bytes_of(value), &[], 0);
         }
         // otherwise reallocate with extra space for alignment
         else
@@ -117,7 +117,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // round up to READ_SIZE
             let size = round_up!(size_of::<V>(), T::READ_SIZE);
             
-            shadow.write_entry_data(v.as_bytes(size), &[]);
+            shadow.write_entry_data(v.as_bytes(size), &[], 0);
         }
         
     }

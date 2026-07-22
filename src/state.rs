@@ -74,7 +74,7 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
             return false;
         }
         
-        let mut new_addr: Address<PAGE_SIZE> = (self.address.0 + Self::OFFSET as u32).into();
+        let mut new_addr = self.address + Self::OFFSET as u32;
         if new_addr.get_page() >= C::STATE_PAGES as u32
         {
             new_addr = Address::from_page_offset(0, 0);

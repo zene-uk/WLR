@@ -61,7 +61,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     #[must_use]
     pub fn get_end_page(&self) -> u32
     {
-        return Address::<PAGE_SIZE>(self.data_address.0 + self.data_size as u32 - 1).get_page();
+        return (self.data_address + (self.data_size as u32 - 1)).get_page();
     }
     #[inline]
     #[must_use]
@@ -210,7 +210,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     #[must_use]
     /// returns page address aligned to write size
-    pub fn get_next_page_address(&self, page: u32) -> Option<Address<PAGE_SIZE>>
+    pub fn get_page_next_address(&self, page: u32) -> Option<Address<PAGE_SIZE>>
     {
         let index = match self.page_table.get(&page)
         {
@@ -219,7 +219,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         };
         
         let mut node = self.linked_list.get_node(index);
-        // somethings wrong if the first node is not actually on the page
+        // something is wrong if the first node is not actually on the page - should not occur
         let mut next_address = Address(0);
         while node.as_ref().is_on_page(page)
         {
@@ -319,7 +319,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         // this function shouldnt be called if the data goes over the end of the partition
         
         // check if last byte is on new page
-        let end_page = Address::<PAGE_SIZE>(da.0 + size as u32 - 1).get_page();
+        let end_page = (da + (size as u32 - 1)).get_page();
         // overflow page - add it to page_table
         if end_page != page && !self.page_table.contains_key(&end_page)
         {

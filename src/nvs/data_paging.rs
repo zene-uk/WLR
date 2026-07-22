@@ -3,57 +3,73 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsKey, data::Address, key_map::TableValue, nvs::NvsShadow};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PreparePage<const PAGE_SIZE: u32>
+{
+    NextAddress(Address<PAGE_SIZE>),
+    Repeat,
+    Fail
+}
+
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
 {
     pub fn next_data_page(&mut self)
     {
         let mut page = self.next_data_address.get_page() + 1;
-        let last_padding_page = self.state.get_value() + C::MAP_POST_PADDING as u32;
-        if !self.can_use_page(page)
+        // loop around
+        if Self::is_page_overrun(page)
         {
-            page = last_padding_page + 1;
+            page = C::STATE_PAGES as u32;
+        }
+        if !self.page_in_map_padding(page)
+        {
+            // plus one inside so that it wraps around for us
+            page = Self::get_last_map_padding_page(self.state.get_value() + 1);
         }
         
         *self.next_data_address = Address::from_page(page);
     }
-    #[must_use]
-    #[inline]
-    fn can_use_page(&self, page: u32) -> bool
-    {
-        let back_map_page = self.state.get_value();
-        let last_padding_page = back_map_page + C::MAP_POST_PADDING as u32;
-        return last_padding_page < page ||
-            back_map_page - C::MAP_PRE_PADDING as u32 > page;
-    }
     
+    /// It must be ok to write to next_record_address and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
+    /// 
     /// Prepares the next data address considering the size of the data about ot be written
-    pub fn prepare_data_page(&mut self, data_size: u32) -> bool
+    pub fn prepare_data_page(&mut self, data_size: u32, unused_map_page: u32) -> Option<Address<{ C::PAGE_SIZE }>>
     {
         // loop prepare page
-        while {
-            match self.prepare_page_inner(data_size)
-            {
-                Some(l) => l,
-                None => return false
-            }
-        } { }
+        let mut pp = PreparePage::Repeat;
+        while pp == PreparePage::Repeat
+        {
+            pp = self.prepare_page_inner(data_size, unused_map_page);
+        }
         
-        return true;
+        return match pp
+        {
+            PreparePage::NextAddress(address) => Some(address),
+            _ => None
+        };
     }
-    fn prepare_page_inner(&mut self, data_size: u32) -> Option<bool>
+    fn prepare_page_inner(&mut self, data_size: u32, unused_map_page: u32) -> PreparePage<{ C::PAGE_SIZE }>
     {
-        let page = self.next_record_address.get_page();
+        // loop around
+        let page = self.next_data_address.get_page();
+        if Self::is_page_overrun(page)
+        {
+            self.next_data_page();
+            return PreparePage::Repeat;
+        }
+        
         // brand new empty page
         if self.key_map.is_page_free(page)
         {
             if self.erase_page(page)
             {
-                return Some(false);
+                return PreparePage::NextAddress(*self.next_data_address + data_size);
             }
-            return None;
+            return PreparePage::Fail;
         }
         // new page - make checks
-        if self.next_record_address.is_page_start()
+        if self.next_data_address.is_page_start()
         {
             let potential_space = self.key_map.get_available_page_space(page);
             
@@ -61,40 +77,63 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             if potential_space < data_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32
             {
                 self.next_data_page();
-                return Some(true);
+                return PreparePage::Repeat;
             }
             
-            // TODO: recreate page
-            return Some(false);
+            // rewrite page - next_data_address is already at the start of the page
+            // moves the page to itself
+            self.move_data_page(page, true, unused_map_page);
+            // bounds check in partition done on next prepare_data_page
+            return PreparePage::NextAddress(*self.next_data_address + data_size);
         }
         
         // there is enough space to continue writing to this page
-        let space = self.next_record_address.get_remaining_space();
+        let space = self.next_data_address.get_remaining_space();
         if space <= data_size
         {
-            return Some(false);
+            // bounds check in partition done on next prepare_data_page
+            return PreparePage::NextAddress(*self.next_data_address + data_size);
         }
         
         // make sure next page is usable
-        if !self.can_use_page(page + 1)
+        if self.page_in_map_padding(page + 1) || Self::is_page_overrun(page + 1)
         {
             self.next_data_page();
-            return Some(true);
+            return PreparePage::Repeat;
         }
         
         // make sure next page is ok to write to
         let overflow_size = data_size - space;
-        let potential_space = self.key_map.get_available_page_space(page);
+        let potential_space = self.key_map.get_available_page_space(page + 1);
         
         // should not use the page - so no overflow allowed - next page and prepare again
         if potential_space < overflow_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32
         {
             self.next_data_page();
-            return Some(true);
+            return PreparePage::Repeat;
         }
         
-        // TODO: recreate page
-        return Some(false);
+        // leave next_data_address as it is, but the next address is going to be after the next pages rewritten data
+        let nda = *self.next_data_address;
+        // skip over what were going to write
+        *self.next_data_address += data_size;
+        
+        let last_nra_page = self.next_record_address.get_page();
+        // moves the page to itself
+        self.move_data_page(page + 1, true, unused_map_page);
+        let new_nra_page = self.next_record_address.get_page();
+        
+        // our current page has been overrun by the map
+        if Self::page_in_range(page, last_nra_page, new_nra_page)
+        {
+            // check the new next_data_address
+            return PreparePage::Repeat;
+        }
+        
+        let next_nda = *self.next_data_address;
+        *self.next_data_address = nda;
+        // bounds check in partition done on next prepare_data_page
+        return PreparePage::NextAddress(next_nda);
     }
     
     /// It must be ok to write to next_record_address and update its value,
@@ -141,7 +180,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             
             // write data first - so that page checks are not disrupted by our updated record data
             let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state, &self.ignore);
-            if !shadow_copy.write_entry_data(data, &extra_data)
+            if !shadow_copy.write_entry_data(data, &extra_data, unused_map_page)
             {
                 return false;
             }
@@ -174,10 +213,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// `data1` and `data2` both must be aligned to `WRITE_SIZE` individually
-    pub fn write_entry_data(&mut self, data1: &[u8], data2: &[u8]) -> bool
+    pub fn write_entry_data(&mut self, data1: &[u8], data2: &[u8], unused_map_page: u32) -> bool
     {
         let size = data1.len() + data2.len();
-        self.prepare_data_page(size as u32);
+        self.prepare_data_page(size as u32, unused_map_page);
         
         // can safely write to next_data_address
         if self.partition.write(self.next_data_address.0, data1).is_err()

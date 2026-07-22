@@ -12,19 +12,28 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     {
         // continue writing to current page map
         if !self.next_record_address.is_page_start() { return true; }
-        let page = self.next_record_address.get_page();
+        
+        // loop around
+        let mut page = self.next_record_address.get_page();
+        if Self::is_page_overrun(page)
+        {
+            *self.next_record_address = Address::from_page(C::STATE_PAGES as u32);
+            page = C::STATE_PAGES as u32;
+        }
+        // no longer mutable
+        let page = page;
         
         let back_map_page = self.state.get_value();
         let move_records = page - back_map_page >= C::MAPPING_MAX_RANGE as u32;
         if move_records
         {
             // make sure our next data address is not writing to a page about to be moved
-            let last_padding_page = (page - C::MAPPING_MAX_RANGE as u32 + 1) + C::MAP_POST_PADDING as u32;
+            let last_padding_page = Self::get_last_map_padding_page(back_map_page + 1);
             // use current back page so we dont write over records that need to be moved
-            let first_padding_page = back_map_page - C::MAP_PRE_PADDING as u32;
+            let first_padding_page = Self::get_first_map_padding_page(back_map_page);
             while {
                 let data_page = self.next_data_address.get_page();
-                last_padding_page >= data_page && data_page >= first_padding_page
+                Self::page_in_range(data_page, first_padding_page, last_padding_page)
             }
             {
                 self.next_data_page();
@@ -64,12 +73,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         record: &TableValue<K, { C::PAGE_SIZE }>, new_addr: Address<{ C::PAGE_SIZE }>,
         unused_map_page: u32) -> bool
     {
-        let addr = *nra;
-        
         let mut write_data: Padding<Record<{ C::PAGE_SIZE }>, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         write_data.0 = record.to_record_new_addr(new_addr);
         
-        if partition.write(addr.0, write_data.as_bytes(Self::RECORD_OFFSET)).is_err()
+        if partition.write(nra.0, write_data.as_bytes(Self::RECORD_OFFSET)).is_err()
         {
             return false;
         }
@@ -86,8 +93,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             }
         }
         
-        // next address
-        *nra = Address(addr.0 + Self::RECORD_OFFSET as u32);
+        // next address - bounds check in partition done on next prepare_map
+        *nra += Self::RECORD_OFFSET as u32;
         return true;
     }
     /// It must be ok to write to next_record_address and update its value,

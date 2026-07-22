@@ -42,6 +42,9 @@ pub trait NvsConstants
     /// worth rewriting the entire page instead of moving to a new page
     const REWRITE_COPY_SIZE_MULTIPLIER: u8 = 2;
     
+    /// The total number of available pages
+    const TOTAL_PAGES: u32;
+    
     #[type_const]
     const PAGE_SIZE: u32;
     #[type_const]
