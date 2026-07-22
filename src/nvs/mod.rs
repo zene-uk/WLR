@@ -6,10 +6,10 @@ use core::{marker::PhantomData, mem::MaybeUninit};
 
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, Padding, data::Address, key_map::KeyMap, paging::NvsShadow, state::State};
+use crate::{NvsConstants, NvsKey, Padding, data::Address, key_map::KeyMap, paging::NvsShadow, round_up, state::State};
 // use crate::{CheckConst, True};
 
-pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
+pub struct Nvs<K: NvsKey, T: NorFlash + 'static, C: NvsConstants>
     where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
@@ -21,7 +21,7 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     key_map: KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
     next_data_address: Address<{ T::ERASE_SIZE as u32 }>,
     next_record_address: Address<{ T::ERASE_SIZE as u32 }>,
-    state: State<C, { T::ERASE_SIZE as u32 }>,
+    state: State<T, C, { T::ERASE_SIZE as u32 }>,
     _phantom: PhantomData<C>
 }
 
@@ -33,9 +33,10 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         [(); { T::ERASE_SIZE as u32 } as usize]: ,
         [(); K::COUNT]: 
 {
-    pub fn as_shadow<'a>(&'a mut self) -> NvsShadow<'a, K, T, C>
+    fn as_shadow<'a, F: Fn(K) -> bool>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
-        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.next_data_address, &mut self.next_record_address, &mut self.state);
+        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.next_data_address,
+            &mut self.next_record_address, &mut self.state, ignore);
     }
     
     pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V)
@@ -89,7 +90,9 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         // if page is too full, increment to next page again
         // throw error if we have filled up our allowed space
         
-        self.as_shadow().prepare_map(key);
+        let mut shadow = self.as_shadow(|k| k == key);
+        shadow.prepare_map();
+        // shadow.write_entry_data(data, ignore);
     }
     
     /// Call after every block of writes
@@ -136,11 +139,10 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         else
         {
             let mut v: Padding<V, { T::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
-            let bytes = bytemuck::bytes_of_mut(&mut v);
-            // round down to READ_SIZE
-            let size = (bytes.len() / T::READ_SIZE) * T::READ_SIZE;
+            // round up to READ_SIZE
+            let size = round_up!(size_of::<V>(), T::READ_SIZE);
             
-            if self.partition.read(tv.get_address().0, &mut bytes[..size]).is_err()
+            if self.partition.read(tv.get_address().0, v.as_bytes_mut(size)).is_err()
             {
                 return false;
             }

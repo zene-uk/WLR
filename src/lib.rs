@@ -52,3 +52,14 @@ pub(crate) use round_up;
 pub(crate) struct Padding<V, const N: usize>(V, [u8; N]);
 unsafe impl<V, const N: usize> bytemuck::Zeroable for Padding<V, N> {}
 unsafe impl<V: bytemuck::Pod, const N: usize> bytemuck::Pod for Padding<V, N> {}
+impl<V: bytemuck::Pod, const N: usize> Padding<V, N>
+{
+    pub fn as_bytes<'a>(&'a self, true_size: usize) -> &'a [u8]
+    {
+        return &bytemuck::bytes_of(self)[..true_size];
+    }
+    pub fn as_bytes_mut<'a>(&'a mut self, true_size: usize) -> &'a mut [u8]
+    {
+        return &mut bytemuck::bytes_of_mut(self)[..true_size];
+    }
+}

@@ -6,23 +6,24 @@ use embedded_storage::nor_flash::NorFlash;
 use crate::{NvsConstants, Padding, data::Address, round_up};
 // use crate::{CheckConst, True};
 
-pub struct State<C: NvsConstants, const PAGE_SIZE: u32>
+pub struct State<T: NorFlash + 'static, C: NvsConstants, const PAGE_SIZE: u32>
     // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     address: Address<PAGE_SIZE>,
     value: u32,
     synced: bool,
-    _phatom: PhantomData<C>
+    _phatom: PhantomData<(C, T)>
 }
 
-impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
+impl<T: NorFlash + 'static, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, PAGE_SIZE>
     // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+    where [(); T::WRITE_SIZE]:
 {
+    const OFFSET: usize = round_up!(size_of::<u32>(), T::WRITE_SIZE);
+    
     #[must_use]
-    pub fn init<T: NorFlash>(partition: &mut T) -> Option<Self>
+    pub fn init(partition: &mut T) -> Option<Self>
     {
-        let offset = round_up!(size_of::<u32>(), T::WRITE_SIZE);
-        
         let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
         for page in 0..C::STATE_PAGES
         {
@@ -32,7 +33,7 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
                 return None;
             }
             
-            for i in (0..T::ERASE_SIZE).step_by(offset)
+            for i in (0..T::ERASE_SIZE).step_by(Self::OFFSET)
             {
                 let value: u32 = *bytemuck::from_bytes(&bytes[i..(i+size_of::<u32>())]);
                 if value != 0
@@ -46,8 +47,7 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
         return None;
     }
     #[must_use]
-    pub fn new<T: NorFlash + 'static>(partition: &mut T, value: u32) -> Option<Self>
-        where [(); T::WRITE_SIZE]:
+    pub fn new(partition: &mut T, value: u32) -> Option<Self>
     {
         // erase initial state page
         if partition.erase(0, T::ERASE_SIZE as u32).is_err()
@@ -56,10 +56,9 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
         }
         
         // write initial value
-        let offset = round_up!(size_of::<u32>(), T::WRITE_SIZE);
         let mut buffer: Padding<u32, { T::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         buffer.0 = value;
-        if partition.write(0, &bytemuck::bytes_of(&buffer)[..offset]).is_err()
+        if partition.write(0, buffer.as_bytes(Self::OFFSET)).is_err()
         {
             return None;
         }
@@ -67,21 +66,19 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
         return Some(Self { address: Address(0), value, synced: true, _phatom: PhantomData });
     }
     
-    pub fn sync_value<T: NorFlash + 'static>(&mut self, partition: &mut T) -> bool
-        where [(); T::WRITE_SIZE]:
+    pub fn sync_value(&mut self, partition: &mut T) -> bool
     {
         // no change
         if self.synced { return true; }
         
-        let offset = round_up!(size_of::<u32>(), T::WRITE_SIZE);
         let mut buffer: Padding<u32, { T::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         // write all zeros to old address
-        if partition.write(self.address.0, &bytemuck::bytes_of(&buffer)[..offset]).is_err()
+        if partition.write(self.address.0, buffer.as_bytes(Self::OFFSET)).is_err()
         {
             return false;
         }
         
-        let mut new_addr: Address<PAGE_SIZE> = (self.address.0 + offset as u32).into();
+        let mut new_addr: Address<PAGE_SIZE> = (self.address.0 + Self::OFFSET as u32).into();
         if new_addr.get_page() >= C::STATE_PAGES as u32
         {
             new_addr = Address::from_page_offset(0, 0);
@@ -98,7 +95,7 @@ impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
         
         // write new value
         buffer.0 = self.value;
-        if partition.write(new_addr.0, &bytemuck::bytes_of(&buffer)[..offset]).is_err()
+        if partition.write(new_addr.0, buffer.as_bytes(Self::OFFSET)).is_err()
         {
             return false;
         }

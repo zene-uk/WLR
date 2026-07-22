@@ -14,14 +14,21 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         [(); { T::ERASE_SIZE as u32 } as usize]: ,
         [(); K::COUNT]: 
 {
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ T::ERASE_SIZE as u32 }>>(), T::WRITE_SIZE);
+    
     #[must_use]
     pub fn init(mut partition: T) -> Option<Self>
     {
+        // invalid constants
+        if !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF
+        {
+            return None;
+        }
+        
         let state = State::init(&mut partition)?;
         let record_page = state.get_value();
         
         let mut key_map = KeyMap::new();
-        let offset = round_up!(size_of::<Record<{ T::ERASE_SIZE as u32 }>>(), T::WRITE_SIZE);
         
         let mut next_data_page = 0;
         let mut next_record_address = Address(0);
@@ -36,7 +43,7 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
                 return None;
             }
             
-            for i in (0..T::ERASE_SIZE).step_by(offset)
+            for i in (0..T::ERASE_SIZE).step_by(Self::RECORD_OFFSET)
             {
                 let key: u32 = *bytemuck::from_bytes(&bytes[i..(i+size_of::<u32>())]);
                 match key

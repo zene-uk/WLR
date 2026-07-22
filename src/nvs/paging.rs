@@ -1,11 +1,11 @@
-use core::marker::PhantomData;
+use core::{marker::PhantomData, mem::MaybeUninit};
 
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, data::Address, key_map::{KeyMap, TableValue}, state::State};
+use crate::{NvsConstants, NvsKey, Padding, data::{Address, Record}, key_map::{KeyMap, TableValue}, round_up, state::State};
 // use crate::{CheckConst, True};
 
-pub(super) struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants>
+pub(super) struct NvsShadow<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants, F: Fn(K) -> bool>
     where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         //CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
@@ -17,11 +17,12 @@ pub(super) struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants>
     pub key_map: &'a mut KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
     pub next_data_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
     pub next_record_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
-    pub state: &'a mut State<C, { T::ERASE_SIZE as u32 }>,
+    pub state: &'a mut State<T, C, { T::ERASE_SIZE as u32 }>,
+    pub ignore: F,
     _phantom: PhantomData<C>
 }
 
-impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> NvsShadow<'a, K, T, C>
+impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
     where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         //CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
@@ -29,17 +30,20 @@ impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> NvsShadow<
         [(); { T::ERASE_SIZE as u32 } as usize]: ,
         [(); K::COUNT]: 
 {
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ T::ERASE_SIZE as u32 }>>(), T::WRITE_SIZE);
+    
     pub fn new(partition: &'a mut T,
         key_map: &'a mut KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
         next_data_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
         next_record_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
-        state: &'a mut State<C, { T::ERASE_SIZE as u32 }>) -> Self
+        state: &'a mut State<T, C, { T::ERASE_SIZE as u32 }>,
+        ignore: F) -> Self
     {
-        return Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData };
+        return Self { partition, key_map, next_data_address, next_record_address, state, ignore, _phantom: PhantomData };
     }
     
     /// Ensures that the current record location is safe to write to
-    pub fn prepare_map(&mut self, ignore: K) -> bool
+    pub fn prepare_map(&mut self) -> bool
     {
         // continue writing to current page map
         if !self.next_record_address.is_page_start() { return true; }
@@ -48,7 +52,7 @@ impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> NvsShadow<
         // need to move entries - do this before bringing back records to the front
         if !self.key_map.is_page_free(page)
         {
-            self.move_page(page, true, ignore);
+            self.move_page(page, true);
         }
         
         // dont need to move old records forward
@@ -67,7 +71,7 @@ impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> NvsShadow<
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// This function will also call `prepare_map` ready for the next record write
-    pub fn move_page(&mut self, page: u32, erase: bool, ignore: K) -> bool
+    pub fn move_page(&mut self, page: u32, erase: bool) -> bool
     {
         let page_data = match self.read_page(page)
         {
@@ -89,28 +93,30 @@ impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> NvsShadow<
         for tr in iter
         {
             // skip ignore
-            if tr.get_key() == ignore { continue; }
+            if (self.ignore)(tr.get_key()) { continue; }
             // consider overflow data
             
             let addr = *self.next_data_address;
-            let mut shadow_copy = NvsShadow::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state);
-            shadow_copy.write_entry_data(&[], ignore);
+            let mut shadow_copy = NvsShadow::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state, &self.ignore);
+            shadow_copy.write_entry_data(&[], &[]);
             
             let tv = tr.get_current_value();
             let rec_addr = *self.next_record_address;
-            NvsShadow::<_, _, C>::write_record(self.partition, self.next_record_address, tv, addr);
+            NvsShadow::<_, _, C, F>::write_record(self.partition, self.next_record_address, tv, addr);
             let size = tv.get_size();
             tr.key_map.update_record(tr.get_key(), rec_addr, addr, size);
             
-            let mut shadow_copy = NvsShadow::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state);
-            shadow_copy.prepare_map(ignore);
+            let mut shadow_copy = NvsShadow::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state, &self.ignore);
+            shadow_copy.prepare_map();
         }
         
         return true;
     }
+    
+    
     /// It must be ok to write to next_record_address and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
-    pub fn write_entry_data(&mut self, data: &[u8], ignore: K)
+    pub fn write_entry_data(&mut self, data1: &[u8], data2: &[u8])
     {
         
     }
