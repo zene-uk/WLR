@@ -33,6 +33,7 @@ pub trait NvsKey: Enumable + PartialEq
 
 pub trait NvsConstants
 {
+    /// Max number of pages used by the map
     const MAPPING_MAX_RANGE: u8;
     const MAP_PRE_PADDING: u8;
     const STATE_PAGES: u8;

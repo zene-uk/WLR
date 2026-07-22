@@ -23,11 +23,11 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         // no longer mutable
         let page = page;
         
+        // make sure our next data address is not writing to a page about to be moved
         let back_map_page = self.state.get_value();
         let move_records = page - back_map_page >= C::MAPPING_MAX_RANGE as u32;
         if move_records
         {
-            // make sure our next data address is not writing to a page about to be moved
             let last_padding_page = Self::get_last_map_padding_page(back_map_page + 1);
             // use current back page so we dont write over records that need to be moved
             let first_padding_page = Self::get_first_map_padding_page(back_map_page);
@@ -39,6 +39,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
                 self.next_data_page();
             }
         }
+        
+        // only move entries if we need to use the page - new values will never be written within the padding
         
         // need to move entries - do this before bringing back records to the front
         if !self.key_map.is_page_free(page)
@@ -52,6 +54,9 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             self.move_data_page(page, true, unused_map_page);
         }
         
+        // recalculate these as they may have changed due to recursion in move_data_page
+        let back_map_page = self.state.get_value();
+        let move_records = page - back_map_page >= C::MAPPING_MAX_RANGE as u32;
         // dont need to move old records forward
         if !move_records
         {

@@ -120,6 +120,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             shadow.write_entry_data(v.as_bytes(size), &[], 0);
         }
         
+        // TODO
     }
     
     /// Call after every block of writes

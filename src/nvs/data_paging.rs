@@ -88,7 +88,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             
             // rewrite page - next_data_address is already at the start of the page
             // moves the page to itself
-            self.move_data_page(page, true, unused_map_page);
+            if !self.move_data_page(page, true, unused_map_page)
+            {
+                return PreparePage::Fail;
+            }
             // bounds check in partition done on next prepare_data_page
             return PreparePage::NextAddress(*self.next_data_address + data_size);
         }
@@ -126,7 +129,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         
         let last_nra_page = self.next_record_address.get_page();
         // moves the page to itself
-        self.move_data_page(page + 1, true, unused_map_page);
+        if !self.move_data_page(page + 1, true, unused_map_page)
+        {
+            return PreparePage::Fail;
+        }
         let new_nra_page = self.next_record_address.get_page();
         
         // our current page has been overrun by the map

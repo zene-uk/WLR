@@ -20,7 +20,9 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         }
         
         // invalid constants
-        if !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF
+        if !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
+        // The maximum number of records does not leave any empty space in the map
+            K::COUNT >= 1 + (C::MAPPING_MAX_RANGE as u32 * C::PAGE_SIZE) as usize / Self::RECORD_OFFSET
         {
             return None;
         }
@@ -35,7 +37,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
         // find all records
-        for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32)
+        for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32 - 1)
         {
             // read page
             if partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes).is_err()
