@@ -35,13 +35,13 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Prepares the next data address considering the size of the data about ot be written
-    pub fn prepare_data_page(&mut self, data_size: u32, unused_map_page: u32) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
+    pub fn prepare_data_page(&mut self, data_size: u32) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
     {
         // loop prepare page
         let mut pp = PreparePage::Repeat;
         while let PreparePage::Repeat = pp
         {
-            pp = self.prepare_page_inner(data_size, unused_map_page);
+            pp = self.prepare_page_inner(data_size);
         }
         
         return match pp
@@ -51,7 +51,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             _ => panic!()
         };
     }
-    fn prepare_page_inner(&mut self, data_size: u32, unused_map_page: u32) -> PreparePage<K, T, { C::PAGE_SIZE }>
+    fn prepare_page_inner(&mut self, data_size: u32) -> PreparePage<K, T, { C::PAGE_SIZE }>
     {
         // loop around
         let page = self.next_data_address.get_page();
@@ -90,7 +90,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             
             // rewrite page - next_data_address is already at the start of the page
             // moves the page to itself
-            if let Err(err) = self.move_data_page(page, true, unused_map_page)
+            if let Err(err) = self.move_data_page(page, true)
             {
                 return PreparePage::Fail(err);
             }
@@ -131,7 +131,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         
         let last_nra_page = self.next_record_address.get_page();
         // moves the page to itself
-        if let Err(err) = self.move_data_page(page + 1, true, unused_map_page)
+        if let Err(err) = self.move_data_page(page + 1, true)
         {
             return PreparePage::Fail(err);
         }
@@ -154,7 +154,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// This function will also call `prepare_map` ready for the next record write
-    pub fn move_data_page(&mut self, page: u32, erase: bool, unused_map_page: u32) -> Result<(), NvsError<K, T>>
+    pub fn move_data_page(&mut self, page: u32, erase: bool) -> Result<(), NvsError<K, T>>
     {
         // need to always reallocate due to potential recursion
         let page_data = self.read_page(page)?;
@@ -181,10 +181,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             
             // write data first - so that page checks are not disrupted by our updated record data
             let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state, &self.ignore);
-            let addr = shadow_copy.write_entry_data(data, &extra_data, unused_map_page)?;
+            let addr = shadow_copy.write_entry_data(data, &extra_data)?;
             
             let tv = tr.get_current_value();
-            let rec_addr = NvsShadow::<_, _, C, F>::write_record(self.partition, self.next_record_address, tv, addr, unused_map_page)?;
+            let rec_addr = NvsShadow::<_, _, C, F>::write_record(self.partition, self.state, self.next_record_address, tv, addr)?;
             let record = tv.to_record_new_addr(addr);
             // and update map
             if tr.key_map.update_record(record, rec_addr).is_none()
@@ -205,10 +205,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// `data1` and `data2` both must be aligned to `WRITE_SIZE` individually
-    pub fn write_entry_data(&mut self, data1: &[u8], data2: &[u8], unused_map_page: u32) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
+    pub fn write_entry_data(&mut self, data1: &[u8], data2: &[u8]) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
     {
         let size = data1.len() + data2.len();
-        self.prepare_data_page(size as u32, unused_map_page)?;
+        self.prepare_data_page(size as u32)?;
         
         let addr = *self.next_data_address;
         // can safely write to next_data_address

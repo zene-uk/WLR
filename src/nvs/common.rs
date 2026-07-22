@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsError, NvsKey, data::Address, map_err, nvs::NvsShadow};
+use crate::{NvsConstants, NvsError, NvsKey, data::Address, map_err, nvs::NvsShadow, state::State};
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
 {
@@ -10,6 +10,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         let offset = page * T::ERASE_SIZE as u32;
         return map_err!{self.partition.erase(offset, offset + T::ERASE_SIZE as u32)};
     }
+    #[must_use]
     pub fn read_page(&mut self, page: u32) -> Result<Box<[u8]>, NvsError<K, T>>
     {
         let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
@@ -35,6 +36,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         return Self::page_in_range(page, first_padding_page, last_padding_page);
     }
     #[must_use]
+    /// inclusive range check
     pub fn page_in_range(page: u32, start: u32, end: u32) -> bool
     {
         // wraps around
@@ -65,5 +67,20 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             return (page + C::TOTAL_PAGES as i32 - C::STATE_PAGES as i32) as u32;
         }
         return page as u32;
+    }
+    
+    #[must_use]
+    #[inline]
+    pub fn is_in_old_map_page(state: &State<T, C, { C::PAGE_SIZE }>, page: u32) -> bool
+    {
+        let new_first_page = state.get_new_value();
+        let old_first_page = state.get_old_value();
+        
+        if new_first_page == old_first_page
+        {
+            return false;
+        }
+        
+        return Self::page_in_range(page, old_first_page, new_first_page - 1);
     }
 }
