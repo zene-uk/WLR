@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, data::Address, paging::NvsShadow};
+use crate::{NvsConstants, NvsKey, data::Address, nvs::NvsShadow};
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
 {

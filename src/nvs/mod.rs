@@ -1,11 +1,12 @@
 pub mod init;
-pub mod paging;
+mod record_paging;
+mod data_paging;
 mod common;
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, Padding, data::Address, key_map::KeyMap, paging::NvsShadow, round_up, state::State};
+use crate::{NvsConstants, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 {
@@ -15,6 +16,30 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     next_record_address: Address<{ C::PAGE_SIZE }>,
     state: State<T, C, { C::PAGE_SIZE }>,
     _phantom: PhantomData<C>
+}
+struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
+{
+    partition: &'a mut T,
+    key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
+    next_data_address: &'a mut Address<{ C::PAGE_SIZE }>,
+    next_record_address: &'a mut Address<{ C::PAGE_SIZE }>,
+    state: &'a mut State<T, C, { C::PAGE_SIZE }>,
+    ignore: F,
+    _phantom: PhantomData<C>
+}
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
+{
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), T::WRITE_SIZE);
+    
+    pub fn new(partition: &'a mut T,
+        key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
+        next_data_address: &'a mut Address<{ C::PAGE_SIZE }>,
+        next_record_address: &'a mut Address<{ C::PAGE_SIZE }>,
+        state: &'a mut State<T, C, { C::PAGE_SIZE }>,
+        ignore: F) -> NvsShadow<'a, K, T, C, F>
+    {
+        return NvsShadow { partition, key_map, next_data_address, next_record_address, state, ignore, _phantom: PhantomData };
+    }
 }
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
@@ -78,7 +103,23 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         let mut shadow = self.as_shadow(|k| k == key);
         shadow.prepare_map();
-        // shadow.write_entry_data(data, ignore);
+        
+        // out is already aligned by WRITE_SIZE
+        if size_of::<V>() % T::WRITE_SIZE == 0
+        {
+            shadow.write_entry_data(bytemuck::bytes_of(value), &[]);
+        }
+        // otherwise reallocate with extra space for alignment
+        else
+        {
+            let mut v: Padding<V, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
+            v.0 = *value;
+            // round up to READ_SIZE
+            let size = round_up!(size_of::<V>(), T::READ_SIZE);
+            
+            shadow.write_entry_data(v.as_bytes(size), &[]);
+        }
+        
     }
     
     /// Call after every block of writes
