@@ -13,8 +13,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     pub fn init(mut partition: T) -> Result<Self, NvsError<K, T>>
     {
         // constants do not match
-        if T::ERASE_SIZE != C::PAGE_SIZE as usize || T::WRITE_SIZE != C::WRITE_SIZE ||
-            T::READ_SIZE != C::READ_SIZE || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
+        if (C::PAGE_SIZE as usize).is_multiple_of(T::ERASE_SIZE) || C::WRITE_SIZE.is_multiple_of(T::WRITE_SIZE) ||
+            C::READ_SIZE.is_multiple_of(T::READ_SIZE) || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
         // invalid constants
             !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
         // The maximum number of records does not leave any empty space in the map
@@ -31,14 +31,14 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let mut next_data_page = 0;
         let mut next_record_address = Address(0);
         
-        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
+        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(C::PAGE_SIZE as usize).assume_init() };
         // find all records
         for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32 - 1)
         {
             // read page
             map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
             
-            for i in (0..T::ERASE_SIZE).step_by(Self::RECORD_OFFSET)
+            for i in (0..C::PAGE_SIZE as usize).step_by(Self::RECORD_OFFSET)
             {
                 let key: u32 = *bytemuck::from_bytes(&bytes[i..(i+size_of::<u32>())]);
                 match key
@@ -107,10 +107,10 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         // page erasing is done in prepare functions
         // // erase initial record page
-        // map_err!{partition.erase(next_data_address.0, next_data_address.0 + T::ERASE_SIZE as u32)}?;
+        // map_err!{partition.erase(next_data_address.0, next_data_address.0 + C::PAGE_SIZE)}?;
         
         // // erase initial data page
-        // map_err!{partition.erase(next_record_address.0, next_record_address.0 + T::ERASE_SIZE as u32)}?;
+        // map_err!{partition.erase(next_record_address.0, next_record_address.0 + C::PAGE_SIZE)}?;
         
         let state = map_err!{State::new(&mut partition, 0)}?;
         return Ok(Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData })

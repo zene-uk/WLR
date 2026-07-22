@@ -29,7 +29,7 @@ struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
 }
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
 {
-    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), T::WRITE_SIZE);
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
     
     pub fn new(partition: &'a mut T,
         key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
@@ -102,6 +102,12 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // if page is too full, increment to next page again
         // throw error if we have filled up our allowed space
         
+        // data cannot be bigger than a page
+        if size_of::<V>() > C::PAGE_SIZE as usize
+        {
+            return Err(NvsError::DataTooBig(size_of::<V>()))
+        }
+        
         let mut shadow = self.as_shadow(|k| k == key);
         // prepare next_record_address
         shadow.prepare_map()?;
@@ -109,7 +115,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         // actually write the data - this may change next_record_address
         // out is already aligned by WRITE_SIZE
-        if size_of::<V>() % T::WRITE_SIZE == 0
+        if size_of::<V>() % C::WRITE_SIZE == 0
         {
             data_addr = shadow.write_entry_data(bytemuck::bytes_of(value), &[])?;
         }
@@ -118,18 +124,19 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         {
             let mut v: Padding<V, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
             v.0 = *value;
-            // round up to READ_SIZE
-            let size = round_up!(size_of::<V>(), T::READ_SIZE);
+            // round up to WRITE_SIZE
+            let size = round_up!(size_of::<V>(), C::WRITE_SIZE);
             
             data_addr = shadow.write_entry_data(v.as_bytes(size), &[])?;
         }
         
+        let size = size_of::<V>() as u16;
         // write and update the record
         match shadow.key_map.get_table_value(key)
         {
             Some(mut tv) =>
             {
-                tv.set_size(size_of::<V>() as u16);
+                tv.set_size(size);
                 let rec_addr = NvsShadow::<'_, K, T, C, fn(K) -> bool>::write_record(&mut self.partition,
                     &self.state, &mut self.next_record_address, &tv, data_addr)?;
                 let record = tv.to_record_new_addr(data_addr);
@@ -140,7 +147,6 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             },
             None =>
             {
-                let size = size_of::<V>() as u16;
                 let record = Record { size, key: key.get_key_value(), address: data_addr };
                 let rec_addr = shadow.write_new_record(record)?;
                 if !self.key_map.add_value_page(record, rec_addr)
@@ -188,14 +194,14 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             None => return Err(NvsError::MissingKey(key))
         };
         
-        // tv.get_size() <= T::ERASE_SIZE so not a concern
-        if tv.get_size() as usize != size_of::<V>()// || size_of::<V>() > T::ERASE_SIZE
+        // tv.get_size() <= C::PAGE_SIZE so not a concern
+        if tv.get_size() as usize != size_of::<V>()// || size_of::<V>() > C::PAGE_SIZE
         {
             return Err(InconsistentSize(tv.get_size()));
         }
         
         // out is already aligned by READ_SIZE
-        if size_of::<V>() % T::READ_SIZE == 0
+        if size_of::<V>() % C::READ_SIZE == 0
         {
             map_err!{self.partition.read(tv.get_address().0, bytemuck::bytes_of_mut(out))}?;
         }
@@ -204,7 +210,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         {
             let mut v: Padding<V, { C::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
             // round up to READ_SIZE
-            let size = round_up!(size_of::<V>(), T::READ_SIZE);
+            let size = round_up!(size_of::<V>(), C::READ_SIZE);
             
             map_err!{self.partition.read(tv.get_address().0, v.as_bytes_mut(size))}?;
             

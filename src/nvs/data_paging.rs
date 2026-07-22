@@ -88,6 +88,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
                 return PreparePage::Repeat;
             }
             
+            // TODO: case where this page contains some overflow data
+            
             // rewrite page - next_data_address is already at the start of the page
             // moves the page to itself
             if let Err(err) = self.move_data_page(page, true)
@@ -164,7 +166,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             self.erase_page(page)?;
         }
         
-        let iter = match self.key_map.get_page_values(page)
+        let iter = match self.key_map.iter_page_values(page)
         {
             Some(i) => i,
             None => return Err(NvsError::MissingPageData)
@@ -175,6 +177,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             // skip ignore
             if (self.ignore)(tr.get_key()) { continue; }
             // consider overflow data
+            
+            // TODO: fix issues where overflow data could get here twice in the same prepare_map function
+            // (if the first value is an overflow and we read data wrong - which could occur but very rare)
+            // and also when we get to the last value to read its overflow data but thats now been overridden by records
             
             let tv = tr.get_current_value();
             let (data, extra_data) = Self::get_tv_data(self.partition, tv, &page_data, page)?;

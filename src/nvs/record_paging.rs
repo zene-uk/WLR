@@ -43,19 +43,23 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         // need to move entries - do this before bringing back records to the front
         if !self.key_map.is_page_free(page)
         {
+            // by setting erase to true, next_record_address is safe to write to when record calls are made
             self.move_data_page(page, true)?;
         }
-        
         // dont recalculate move_records as if they needed moving, another prepare_map call would have dont it
         // dont need to move old records forward
-        if !move_records
+        else
         {
-            // erase next page ready for records
-            return self.erase_page(page);
+            // page was free, erase ready for records
+            self.erase_page(page)?;
         }
         
-        // move the unchanged out of range records
-        self.move_map_page(back_map_page)?;
+        // by this point it is safe to write to next_record_address
+        if move_records
+        {
+            // move the unchanged out of range records
+            self.move_map_page(back_map_page)?;
+        }
         
         return Ok(());
     }

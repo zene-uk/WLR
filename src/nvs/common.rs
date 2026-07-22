@@ -7,13 +7,13 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
 {
     pub fn erase_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
-        let offset = page * T::ERASE_SIZE as u32;
-        return map_err!{self.partition.erase(offset, offset + T::ERASE_SIZE as u32)};
+        let offset = page * C::PAGE_SIZE;
+        return map_err!{self.partition.erase(offset, offset + C::PAGE_SIZE)};
     }
     #[must_use]
     pub fn read_page(&mut self, page: u32) -> Result<Box<[u8]>, NvsError<K, T>>
     {
-        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
+        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(C::PAGE_SIZE as usize).assume_init() };
         
         map_err!{self.partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
         

@@ -8,6 +8,7 @@ pub enum NvsError<K :NvsKey, T: NorFlash>
     MissingPageData,
     MissingState,
     InconsistentSize(u16),
+    DataTooBig(usize),
     MissingKey(K),
     DuplicateKey(K),
     Flash(T::Error)
