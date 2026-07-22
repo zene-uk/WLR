@@ -60,8 +60,15 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             return self.erase_page(page);
         }
         
-        // TODO
+        // move the unchanged out of range records
+        self.move_map_page(back_map_page)?;
         
+        return Ok(());
+    }
+    
+    pub fn move_map_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
+    {
+        // may need to rewrite next data page record as it could be moved without changing (very rare case)
         
         return Ok(());
     }
