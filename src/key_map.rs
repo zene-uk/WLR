@@ -37,9 +37,15 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     }
     #[inline]
     #[must_use]
-    pub fn get_record(&self) -> Record<PAGE_SIZE>
+    pub fn get_record(&self) -> Address<PAGE_SIZE>
     {
-        return Record { size: self.data_size, key: self.key.get_key_value(), address: self.data_address };
+        return self.record_address;
+    }
+    #[inline]
+    #[must_use]
+    pub fn to_record_new_addr(&self, new_addr: Address<PAGE_SIZE>) -> Record<PAGE_SIZE>
+    {
+        return Record { size: self.data_size, key: self.key.get_key_value(), address: new_addr };
     }
     #[inline]
     #[must_use]
@@ -58,6 +64,26 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     pub fn is_on_page(&self, page: u32) -> bool
     {
         return self.data_address.get_page() == page || self.get_end_page() == page;
+    }
+    #[must_use]
+    pub fn get_overflow_size(&self, ws: u32) -> u32
+    {
+        let next_addr = self.get_next_address(ws);
+        let end_page = next_addr.get_page();
+        // ok to do it this way - if next_addr is the start of the next page, we will still return 0
+        if self.data_address.get_page() != end_page
+        {
+            return 0;
+        }
+        
+        return next_addr.0 - Address::<PAGE_SIZE>::from_page(end_page).0;
+    }
+    #[inline]
+    #[must_use]
+    pub fn get_data_footprint(&self, ws: u32) -> u32
+    {
+        let size = self.data_size as u32;
+        return round_up!(size, ws);
     }
 }
 
