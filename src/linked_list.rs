@@ -193,6 +193,12 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         };
         return LinkedIterIndex { ll: self, current: start, start };
     }
+    #[must_use]
+    /// Iterates through all items in any order
+    pub fn iter_any(&mut self) -> impl Iterator<Item = &mut T>
+    {
+        return self.data[..self.len].iter_mut().map(|n| &mut n.value);
+    }
     
     pub fn insert_sorted<F>(&mut self, compare: F, value: T) -> Option<u16>
         where F: FnMut(&T, &T) -> Ordering

@@ -64,9 +64,28 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         return Ok(());
     }
     
+    /// It must be ok to write to next_record_address and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
     pub fn move_map_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
-        // may need to rewrite next data page record as it could be moved without changing (very rare case)
+        // TODO: may need to rewrite next data page record as it could be moved without changing (very rare case)
+        
+        for mut tr in self.key_map.iter_map_page_values(page)
+        {
+            // skip ignore
+            if (self.ignore)(tr.get_key()) { continue; }
+            
+            let tv = tr.get_current_value_mut();
+            // rewrite record to new location
+            let rec_addr = NvsShadow::<_, _, C, F>::write_record(self.partition, self.state,
+                self.next_record_address, tv, tv.get_address())?;
+            tv.set_record(rec_addr);
+            
+            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address,
+                self.next_record_address, self.state, &self.ignore);
+            // call in preparation for the next record to be moved
+            shadow_copy.prepare_map()?;
+        }
         
         return Ok(());
     }

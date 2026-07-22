@@ -186,7 +186,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             let (data, extra_data) = Self::get_tv_data(self.partition, tv, &page_data, page)?;
             
             // write data first - so that page checks are not disrupted by our updated record data
-            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state, &self.ignore);
+            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address,
+                self.next_record_address, self.state, &self.ignore);
             let addr = shadow_copy.write_entry_data(data, &extra_data)?;
             
             let tv = tr.get_current_value();
@@ -198,7 +199,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
                 return Err(NvsError::MissingKey(tr.get_key()));
             }
             
-            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state, &self.ignore);
+            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address,
+                self.next_record_address, self.state, &self.ignore);
             // call in preparation for the next entry to be moved
             shadow_copy.prepare_map()?;
         }

@@ -46,6 +46,11 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
         return self.record_address;
     }
     #[inline]
+    pub fn set_record(&mut self, addr: Address<PAGE_SIZE>)
+    {
+        self.record_address = addr;
+    }
+    #[inline]
     #[must_use]
     pub fn to_record_new_addr(&self, new_addr: Address<PAGE_SIZE>) -> Record<PAGE_SIZE>
     {
@@ -243,6 +248,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return Some(next_address);
     }
     #[must_use]
+    #[inline]
     /// can include the previous page items if it has data on that page
     pub fn iter_page_values<'a>(&'a mut self, page: u32) -> Option<impl Iterator<Item = TableRecord<'a, K, PAGE_SIZE, WS>>>
     {
@@ -254,6 +260,13 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         
         return Some(PageValueIter::new(self, index, page));
         // return Some(page_filter::<_, _, WS>(self.linked_list.iter_mut_from(index), page));
+    }
+    #[must_use]
+    #[inline]
+    /// Iterates through all records whose record address is on a page
+    pub fn iter_map_page_values<'a>(&'a mut self, page: u32) -> impl Iterator<Item = TableRecord<'a, K, PAGE_SIZE, WS>>
+    {
+        return MapPageValueIter::new(self, page);
     }
     #[must_use]
     pub fn get_available_page_space(&self, page: u32) -> u32
