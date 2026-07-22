@@ -5,3 +5,6 @@ It is desgined for simple hardware like microcontrollers and intended for my own
 
 Currently it uses the unstable rust feature `min_generic_const_args`. It does not use this feature's intended new syntax yet,
 but hopefully it comes to stable release soon.
+
+Currently it also requires regularly heap allocating data. I may try and mitigate this in the future, but for now my uses don't need super stable
+memory for extremely long periods.

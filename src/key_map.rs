@@ -1,10 +1,10 @@
 mod iter;
+use hashbrown::HashMap;
 pub use iter::*;
 
 use core::cmp::Ordering;
 use alloc::boxed::Box;
 use enum_table::EnumTable;
-use micromap::Map;
 
 use crate::{NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
 
@@ -108,7 +108,7 @@ pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
     // static linked list ordered by page (address)
     linked_list: Box<LinkedList<TableValue<K, PAGE_SIZE>, { K::LEN }>>,
     // value is index into linked list
-    page_table: Box<Map<u32, u16, { K::LEN }>>
+    page_table: HashMap<u32, u16>
 }
 
 impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
@@ -118,7 +118,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return Self {
             key_table: Box::new(EnumTable::new_with_fn(|_| 0xFFFF)),
             linked_list: LinkedList::new(),
-            page_table: Box::new(Map::new())
+            page_table: HashMap::with_capacity(K::LEN)
         };
     }
     
