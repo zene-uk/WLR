@@ -1,25 +1,22 @@
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, data::Address, nvs::NvsShadow};
+use crate::{NvsConstants, NvsError, NvsKey, data::Address, map_err, nvs::NvsShadow};
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
 {
-    pub fn erase_page(&mut self, page: u32) -> bool
+    pub fn erase_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
         let offset = page * T::ERASE_SIZE as u32;
-        return self.partition.erase(offset, offset + T::ERASE_SIZE as u32).is_ok();
+        return map_err!{self.partition.erase(offset, offset + T::ERASE_SIZE as u32)};
     }
-    pub fn read_page(&mut self, page: u32) -> Option<Box<[u8]>>
+    pub fn read_page(&mut self, page: u32) -> Result<Box<[u8]>, NvsError<K, T>>
     {
         let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
         
-        if self.partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes).is_err()
-        {
-            return None;
-        }
+        map_err!{self.partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
         
-        return Some(bytes);
+        return Ok(bytes);
     }
     
     #[must_use]

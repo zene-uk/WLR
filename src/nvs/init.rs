@@ -3,14 +3,14 @@ use core::{marker::PhantomData, panic};
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{Nvs, NvsConstants, NvsKey, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
+use crate::{Nvs, NvsConstants, NvsError, NvsKey, data::{Address, Record}, key_map::KeyMap, map_err, round_up, state::State};
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
     const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
     
     #[must_use]
-    pub fn init(mut partition: T) -> Option<Self>
+    pub fn init(mut partition: T) -> Result<Self, NvsError<K, T>>
     {
         // constants do not match
         if T::ERASE_SIZE != C::PAGE_SIZE as usize || T::WRITE_SIZE != C::WRITE_SIZE ||
@@ -24,7 +24,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // The maximum number of records does not leave any empty space in the map
             K::COUNT >= 1 + (C::MAPPING_MAX_RANGE as u32 * C::PAGE_SIZE) as usize / Self::RECORD_OFFSET
         {
-            return None;
+            panic!();
         }
         
         let state = State::init(&mut partition)?;
@@ -40,10 +40,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32 - 1)
         {
             // read page
-            if partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes).is_err()
-            {
-                return None;
-            }
+            map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
             
             for i in (0..T::ERASE_SIZE).step_by(Self::RECORD_OFFSET)
             {
@@ -73,7 +70,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
                         let ra = Address::from_page_offset(page, i as u32);
                         if !key_map.add_value(record, ra)
                         {
-                            return None;
+                            return Err(NvsError::DuplicateKey(record.get_key()));
                         }
                     }
                 }
@@ -101,10 +98,10 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             let mut shadow = res.as_shadow(|_| false);
             shadow.next_data_page();
         }
-        return Some(res);
+        return Ok(res);
     }
     #[must_use]
-    pub fn new(mut partition: T) -> Option<Self>
+    pub fn new(mut partition: T) -> Result<Self, NvsError<K, T>>
     {
         let mut key_map = KeyMap::new();
         key_map.initialise();
@@ -113,18 +110,12 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let next_record_address = Address::from_page(C::STATE_PAGES as u32);
         
         // erase initial record page
-        if partition.erase(next_data_address.0, next_data_address.0 + T::ERASE_SIZE as u32).is_err()
-        {
-            return None;
-        }
+        map_err!{partition.erase(next_data_address.0, next_data_address.0 + T::ERASE_SIZE as u32)}?;
         
         // erase initial data page
-        if partition.erase(next_record_address.0, next_record_address.0 + T::ERASE_SIZE as u32).is_err()
-        {
-            return None;
-        }
+        map_err!{partition.erase(next_record_address.0, next_record_address.0 + T::ERASE_SIZE as u32)}?;
         
-        let state = State::new(&mut partition, 0)?;
-        return Some(Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData })
+        let state = map_err!{State::new(&mut partition, 0)}?;
+        return Ok(Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData })
     }
 }

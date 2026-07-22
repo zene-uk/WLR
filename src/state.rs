@@ -3,7 +3,7 @@ use core::{marker::PhantomData, mem::MaybeUninit};
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, Padding, data::Address, round_up};
+use crate::{NvsConstants, NvsError, NvsKey, Padding, data::Address, map_err, round_up};
 
 pub struct State<T: NorFlash, C: NvsConstants, const PAGE_SIZE: u32>
 {
@@ -18,16 +18,13 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
     const OFFSET: usize = round_up!(size_of::<u32>(), T::WRITE_SIZE);
     
     #[must_use]
-    pub fn init(partition: &mut T) -> Option<Self>
+    pub fn init<K: NvsKey>(partition: &mut T) -> Result<Self, NvsError<K, T>>
     {
         let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
         for page in 0..C::STATE_PAGES
         {
             // read page
-            if partition.read(Address::<PAGE_SIZE>::from_page(page as u32).0, &mut bytes).is_err()
-            {
-                return None;
-            }
+            map_err!{partition.read(Address::<PAGE_SIZE>::from_page(page as u32).0, &mut bytes)}?;
             
             for i in (0..T::ERASE_SIZE).step_by(Self::OFFSET)
             {
@@ -35,44 +32,35 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
                 if value != 0
                 {
                     let address = Address::from_page_offset(page as u32, i as u32);
-                    return Some(Self { address, value, synced: true, _phatom: PhantomData });
+                    return Ok(Self { address, value, synced: true, _phatom: PhantomData });
                 }
             }
         }
         
-        return None;
+        return Err(NvsError::MissingState);
     }
     #[must_use]
-    pub fn new(partition: &mut T, value: u32) -> Option<Self>
+    pub fn new(partition: &mut T, value: u32) -> Result<Self, T::Error>
     {
         // erase initial state page
-        if partition.erase(0, T::ERASE_SIZE as u32).is_err()
-        {
-            return None;
-        }
+        partition.erase(0, T::ERASE_SIZE as u32)?;
         
         // write initial value
         let mut buffer: Padding<u32, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         buffer.0 = value;
-        if partition.write(0, buffer.as_bytes(Self::OFFSET)).is_err()
-        {
-            return None;
-        }
+        partition.write(0, buffer.as_bytes(Self::OFFSET))?;
         
-        return Some(Self { address: Address(0), value, synced: true, _phatom: PhantomData });
+        return Ok(Self { address: Address(0), value, synced: true, _phatom: PhantomData });
     }
     
-    pub fn sync_value(&mut self, partition: &mut T) -> bool
+    pub fn sync_value(&mut self, partition: &mut T) -> Result<(), T::Error>
     {
         // no change
-        if self.synced { return true; }
+        if self.synced { return Ok(()); }
         
         let mut buffer: Padding<u32, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         // write all zeros to old address
-        if partition.write(self.address.0, buffer.as_bytes(Self::OFFSET)).is_err()
-        {
-            return false;
-        }
+        partition.write(self.address.0, buffer.as_bytes(Self::OFFSET))?;
         
         let mut new_addr = self.address + Self::OFFSET as u32;
         if new_addr.get_page() >= C::STATE_PAGES as u32
@@ -83,21 +71,15 @@ impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, P
         if self.address.is_page_start()
         {
             // erase new page ready for data
-            if partition.erase(new_addr.0, new_addr.0 + T::ERASE_SIZE as u32).is_err()
-            {
-                return false;
-            }
+            partition.erase(new_addr.0, new_addr.0 + T::ERASE_SIZE as u32)?;
         }
         
         // write new value
         buffer.0 = self.value;
-        if partition.write(new_addr.0, buffer.as_bytes(Self::OFFSET)).is_err()
-        {
-            return false;
-        }
+        partition.write(new_addr.0, buffer.as_bytes(Self::OFFSET))?;
         self.address = new_addr;
         self.synced = true;
-        return true;
+        return Ok(());
     }
     
     #[inline]

@@ -3,15 +3,15 @@ use core::mem::MaybeUninit;
 use bytemuck::Zeroable;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, Padding, data::{Address, Record}, key_map::TableValue, nvs::NvsShadow};
+use crate::{NvsConstants, NvsError, NvsKey, Padding, data::{Address, Record}, key_map::TableValue, map_err, nvs::NvsShadow};
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
 {
     /// Ensures that the current record location is safe to write to
-    pub fn prepare_map(&mut self) -> bool
+    pub fn prepare_map(&mut self) -> Result<(), NvsError<K, T>>
     {
         // continue writing to current page map
-        if !self.next_record_address.is_page_start() { return true; }
+        if !self.next_record_address.is_page_start() { return Ok(()); }
         
         // loop around
         let mut page = self.next_record_address.get_page();
@@ -51,7 +51,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
                 false => u32::MAX
             };
             
-            self.move_data_page(page, true, unused_map_page);
+            self.move_data_page(page, true, unused_map_page)?;
         }
         
         // recalculate these as they may have changed due to recursion in move_data_page
@@ -67,7 +67,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         // TODO
         
         
-        return true;
+        return Ok(());
     }
     
     /// It must be ok to write to next_record_address and update its value,
@@ -76,15 +76,12 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// Only writes the records data, does not update the key_map
     pub fn write_record(partition: &mut T, nra: &mut Address<{ C::PAGE_SIZE }>,
         record: &TableValue<K, { C::PAGE_SIZE }>, new_addr: Address<{ C::PAGE_SIZE }>,
-        unused_map_page: u32) -> bool
+        unused_map_page: u32) -> Result<(), NvsError<K, T>>
     {
         let mut write_data: Padding<Record<{ C::PAGE_SIZE }>, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         write_data.0 = record.to_record_new_addr(new_addr);
         
-        if partition.write(nra.0, write_data.as_bytes(Self::RECORD_OFFSET)).is_err()
-        {
-            return false;
-        }
+        map_err!{partition.write(nra.0, write_data.as_bytes(Self::RECORD_OFFSET))}?;
         
         // our old address is still in used pages
         let old_addr = record.get_record();
@@ -92,21 +89,18 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         {
             // write zeros to old address
             write_data.0 = Record::zeroed();
-            if partition.write(old_addr.0, write_data.as_bytes(Self::RECORD_OFFSET)).is_err()
-            {
-                return false;
-            }
+            map_err!{partition.write(old_addr.0, write_data.as_bytes(Self::RECORD_OFFSET))}?;
         }
         
         // next address - bounds check in partition done on next prepare_map
         *nra += Self::RECORD_OFFSET as u32;
-        return true;
+        return Ok(());
     }
     /// It must be ok to write to next_record_address and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Only writes the records data, does not update the key_map
-    pub fn write_new_record(&mut self, record: Record<{ C::PAGE_SIZE }>) -> bool
+    pub fn write_new_record(&mut self, record: Record<{ C::PAGE_SIZE }>) -> Result<(), NvsError<K, T>>
     {
         // sets the old record address to 0 and the unused page to 0 - so that it wont try to clear the old record as it does not exist
         let tv = TableValue::from_record(record, Address(0));

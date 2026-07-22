@@ -6,7 +6,7 @@ mod common;
 use core::{marker::PhantomData, mem::MaybeUninit};
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
+use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, map_err, round_up, state::State};
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 {
@@ -50,19 +50,20 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             &mut self.next_record_address, &mut self.state, ignore);
     }
     
-    pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V)
+    pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
         where V: PartialEq,
     {
         let mut tmp: V = unsafe { MaybeUninit::zeroed().assume_init() };
-        if self.read_key_value(key, &mut tmp) && value == &tmp
+        self.read_key_value(key, &mut tmp)?;
+        if value == &tmp
         {
-            return;
+            return Ok(());
         }
         
-        self.write_key_value_force(key, value);
+        return self.write_key_value_force(key, value);
     }
     /// Does not check whether the data has changed or not
-    pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V)
+    pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
     {
         // order of operations:
         // check whether next record is on new page
@@ -102,12 +103,12 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // throw error if we have filled up our allowed space
         
         let mut shadow = self.as_shadow(|k| k == key);
-        shadow.prepare_map();
+        shadow.prepare_map()?;
         
         // out is already aligned by WRITE_SIZE
         if size_of::<V>() % T::WRITE_SIZE == 0
         {
-            shadow.write_entry_data(bytemuck::bytes_of(value), &[], 0);
+            shadow.write_entry_data(bytemuck::bytes_of(value), &[], 0)?;
         }
         // otherwise reallocate with extra space for alignment
         else
@@ -117,70 +118,55 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // round up to READ_SIZE
             let size = round_up!(size_of::<V>(), T::READ_SIZE);
             
-            shadow.write_entry_data(v.as_bytes(size), &[], 0);
+            shadow.write_entry_data(v.as_bytes(size), &[], 0)?;
         }
         
         // TODO
+        
+        return Ok(());
     }
     
     /// Call after every block of writes
     #[inline]
-    pub fn flush(&mut self) -> bool
+    pub fn flush(&mut self) -> Result<(), NvsError<K, T>>
     {
         // write current data page
         let mut shadow = self.as_shadow(|_| false);
         // retain this order
-        if !shadow.prepare_map()
-        {
-            return false;
-        }
+        shadow.prepare_map()?;
         // this is only called to make sure the value prepare_map
         // left in next_data_address is in the partition
-        if shadow.prepare_data_page(0, 0).is_none()
-        {
-            return false;
-        }
-        if !shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.next_data_address.get_page()) })
-        {
-            return false;
-        }
+        shadow.prepare_data_page(0, 0)?;
+        shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.next_data_address.get_page()) })?;
         
         // write state value
-        return self.state.sync_value(&mut self.partition);
+        return map_err!{self.state.sync_value(&mut self.partition)};
     }
     
     #[must_use]
-    pub fn read_key_value_direct<V: bytemuck::Pod>(&mut self, key: K) -> Option<V>
+    pub fn read_key_value_direct<V: bytemuck::Pod>(&mut self, key: K) -> Result<V, NvsError<K, T>>
     {
         let mut result: V = unsafe { MaybeUninit::zeroed().assume_init() };
-        if self.read_key_value(key, &mut result)
-        {
-            return Some(result);
-        }
-        
-        return None;
+        return self.read_key_value(key, &mut result).map(|_| result);
     }
-    pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> bool
+    pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> Result<(), NvsError<K, T>>
     {
         let tv = match self.key_map.get_table_value(key)
         {
             Some(tv) => tv,
-            None => return false
+            None => return Err(NvsError::MissingKey(key))
         };
         
         // tv.get_size() <= T::ERASE_SIZE so not a concern
         if tv.get_size() as usize != size_of::<V>()// || size_of::<V>() > T::ERASE_SIZE
         {
-            return false;
+            return Err(InconsistentSize(tv.get_size()));
         }
         
         // out is already aligned by READ_SIZE
         if size_of::<V>() % T::READ_SIZE == 0
         {
-            if self.partition.read(tv.get_address().0, bytemuck::bytes_of_mut(out)).is_err()
-            {
-                return false;
-            }
+            map_err!{self.partition.read(tv.get_address().0, bytemuck::bytes_of_mut(out))}?;
         }
         // otherwise reallocate with extra space for alignment
         else
@@ -189,14 +175,11 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // round up to READ_SIZE
             let size = round_up!(size_of::<V>(), T::READ_SIZE);
             
-            if self.partition.read(tv.get_address().0, v.as_bytes_mut(size)).is_err()
-            {
-                return false;
-            }
+            map_err!{self.partition.read(tv.get_address().0, v.as_bytes_mut(size))}?;
             
             *out = v.0;
         }
         
-        return true;
+        return Ok(());
     }
 }

@@ -117,16 +117,18 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return l.data_address.cmp(&r.data_address);
     }
     
+    #[must_use]
     /// doesnt update page data
     pub fn add_value(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> bool
     {
         return self.add_value_inner(record, ra).is_some();
     }
+    #[must_use]
     fn add_value_inner(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Option<u16>
     {
         let key = record.get_key();
         // cannot have duplicate keys
-        if self.key_table.get(&key) == &0xFFFF
+        if self.key_table.get(&key) != &0xFFFF
         {
             return None;
         }
@@ -293,6 +295,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return !self.page_table.contains_key(&page);
     }
     
+    #[must_use]
     /// if new value is on a page with values already - its address will be greater
     pub fn add_value_page(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> bool
     {

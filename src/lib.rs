@@ -4,10 +4,13 @@
 
 extern crate alloc;
 
-mod nvs;
 use enum_table::Enumable;
 
+mod nvs;
 pub use crate::nvs::*;
+
+mod error;
+pub use crate::error::*;
 
 mod data;
 // pub use crate::data::*;
