@@ -6,7 +6,7 @@ use embedded_storage::nor_flash::NorFlash;
 use crate::{NvsConstants, Padding, data::Address, round_up};
 // use crate::{CheckConst, True};
 
-pub struct State<T: NorFlash + 'static, C: NvsConstants, const PAGE_SIZE: u32>
+pub struct State<T: NorFlash, C: NvsConstants, const PAGE_SIZE: u32>
     // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     address: Address<PAGE_SIZE>,
@@ -15,9 +15,9 @@ pub struct State<T: NorFlash + 'static, C: NvsConstants, const PAGE_SIZE: u32>
     _phatom: PhantomData<(C, T)>
 }
 
-impl<T: NorFlash + 'static, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, PAGE_SIZE>
+impl<T: NorFlash, C: NvsConstants + 'static, const PAGE_SIZE: u32> State<T, C, PAGE_SIZE>
     // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
-    where [(); T::WRITE_SIZE]:
+    // where [(); T::WRITE_SIZE]:
 {
     const OFFSET: usize = round_up!(size_of::<u32>(), T::WRITE_SIZE);
     
@@ -56,7 +56,7 @@ impl<T: NorFlash + 'static, C: NvsConstants + 'static, const PAGE_SIZE: u32> Sta
         }
         
         // write initial value
-        let mut buffer: Padding<u32, { T::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
+        let mut buffer: Padding<u32, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         buffer.0 = value;
         if partition.write(0, buffer.as_bytes(Self::OFFSET)).is_err()
         {
@@ -71,7 +71,7 @@ impl<T: NorFlash + 'static, C: NvsConstants + 'static, const PAGE_SIZE: u32> Sta
         // no change
         if self.synced { return true; }
         
-        let mut buffer: Padding<u32, { T::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
+        let mut buffer: Padding<u32, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         // write all zeros to old address
         if partition.write(self.address.0, buffer.as_bytes(Self::OFFSET)).is_err()
         {

@@ -1,4 +1,4 @@
-use core::marker::PhantomData;
+use core::{marker::PhantomData, panic};
 
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
@@ -6,19 +6,26 @@ use embedded_storage::nor_flash::NorFlash;
 use crate::{Nvs, NvsConstants, NvsKey, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
 // use crate::{CheckConst, True};
 
-impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
-    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
+    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: ,
-        [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        [(); K::COUNT]: 
+        // [(); T::WRITE_SIZE]: ,
+        // [(); T::READ_SIZE]: ,
+        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        // [(); K::COUNT]: 
 {
-    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ T::ERASE_SIZE as u32 }>>(), T::WRITE_SIZE);
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), T::WRITE_SIZE);
     
     #[must_use]
     pub fn init(mut partition: T) -> Option<Self>
     {
+        // constants do not match
+        if T::ERASE_SIZE != C::PAGE_SIZE as usize || T::WRITE_SIZE != C::WRITE_SIZE ||
+            T::READ_SIZE != C::READ_SIZE || K::COUNT != K::LEN
+        {
+            panic!();
+        }
+        
         // invalid constants
         if !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF
         {
@@ -38,7 +45,7 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32)
         {
             // read page
-            if partition.read(Address::<{ T::ERASE_SIZE as u32 }>::from_page(page as u32).0, &mut bytes).is_err()
+            if partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes).is_err()
             {
                 return None;
             }
@@ -66,8 +73,8 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
                     // record contains data
                     _ =>
                     {
-                        let record: Record<{ T::ERASE_SIZE as u32 }> = 
-                            *bytemuck::from_bytes(&bytes[i..(i+size_of::<Record<{ T::ERASE_SIZE as u32 }>>())]);
+                        let record: Record<{ C::PAGE_SIZE }> = 
+                            *bytemuck::from_bytes(&bytes[i..(i+size_of::<Record<{ C::PAGE_SIZE }>>())]);
                         let ra = Address::from_page_offset(page, i as u32);
                         if !key_map.add_value(K::from_key_value(record.key), ra, record.address, record.size)
                         {

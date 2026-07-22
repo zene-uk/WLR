@@ -62,20 +62,20 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
 }
 
 pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
-    where [(); K::COUNT]: ,
+    // where [(); K::COUNT]: ,
         //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
     // index by key
-    key_table: Box<EnumTable<K, u16, { K::COUNT }>>,
+    key_table: Box<EnumTable<K, u16, { K::LEN }>>,
     // static linked list ordered by page (address)
-    linked_list: Box<LinkedList<TableValue<K, PAGE_SIZE>, { K::COUNT }>>,
+    linked_list: Box<LinkedList<TableValue<K, PAGE_SIZE>, { K::LEN }>>,
     // value is index into linked list
-    page_table: Box<Map<u32, u16, { K::COUNT }>>
+    page_table: Box<Map<u32, u16, { K::LEN }>>
 }
 
 impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
-    where [(); K::COUNT]: ,
+    // where [(); K::COUNT]: ,
         //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True
 {

@@ -1,6 +1,7 @@
 #![no_std]
 #![allow(incomplete_features)]
-#![feature(generic_const_exprs)]
+// #![feature(generic_const_exprs)]
+#![feature(min_generic_const_args)]
 
 extern crate alloc;
 
@@ -22,6 +23,9 @@ mod linked_list;
 
 pub trait NvsKey: Enumable + PartialEq
 {
+    #[type_const]
+    const LEN: usize;
+    
     fn from_key_value(value: u16) -> Self
     {
         return Self::VARIANTS[value as usize];
@@ -34,11 +38,22 @@ pub trait NvsKey: Enumable + PartialEq
 
 pub trait NvsConstants
 {
+    #[type_const]
     const MAPPING_MAX_RANGE: u8;
+    #[type_const]
     const MAP_PRE_PADDING: u8;
+    #[type_const]
     const STATE_PAGES: u8;
+    #[type_const]
     /// From the first page of the map (should be at least `MAPPING_MAX_RANGE`)
     const MAP_POST_PADDING: u8;
+    
+    #[type_const]
+    const PAGE_SIZE: u32;
+    #[type_const]
+    const WRITE_SIZE: usize;
+    #[type_const]
+    const READ_SIZE: usize;
 }
 
 macro_rules! round_up {

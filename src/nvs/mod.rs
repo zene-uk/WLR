@@ -9,29 +9,29 @@ use embedded_storage::nor_flash::NorFlash;
 use crate::{NvsConstants, NvsKey, Padding, data::Address, key_map::KeyMap, paging::NvsShadow, round_up, state::State};
 // use crate::{CheckConst, True};
 
-pub struct Nvs<K: NvsKey, T: NorFlash + 'static, C: NvsConstants>
-    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
+    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: ,
-        [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        [(); K::COUNT]: 
+        // [(); T::WRITE_SIZE]: ,
+        // [(); T::READ_SIZE]: ,
+        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        // [(); K::COUNT]: 
 {
     partition: T,
-    key_map: KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
-    next_data_address: Address<{ T::ERASE_SIZE as u32 }>,
-    next_record_address: Address<{ T::ERASE_SIZE as u32 }>,
-    state: State<T, C, { T::ERASE_SIZE as u32 }>,
+    key_map: KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
+    next_data_address: Address<{ C::PAGE_SIZE }>,
+    next_record_address: Address<{ C::PAGE_SIZE }>,
+    state: State<T, C, { C::PAGE_SIZE }>,
     _phantom: PhantomData<C>
 }
 
-impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
-    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
+    // where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True,
-        [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: ,
-        [(); { T::ERASE_SIZE as u32 } as usize]: ,
-        [(); K::COUNT]: 
+        // [(); T::WRITE_SIZE]: ,
+        // [(); T::READ_SIZE]: ,
+        // [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        // [(); K::COUNT]: 
 {
     fn as_shadow<'a, F: Fn(K) -> bool>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
@@ -138,7 +138,7 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         // otherwise reallocate with extra space for alignment
         else
         {
-            let mut v: Padding<V, { T::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
+            let mut v: Padding<V, { C::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
             // round up to READ_SIZE
             let size = round_up!(size_of::<V>(), T::READ_SIZE);
             
