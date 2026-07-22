@@ -3,6 +3,9 @@ use crate::{NvsKey, key_map::{KeyMap, TableValue}};
 pub(super) struct PageValueIter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
 {
     key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>,
+    /// Stores the index of the next node to be read.
+    /// Means that we can safely update the value returned by `next`
+    /// and it won't disrupt the iterator.
     current: u16,
     start: u16,
     page: u32

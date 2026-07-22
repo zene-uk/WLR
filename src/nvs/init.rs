@@ -7,7 +7,7 @@ use crate::{Nvs, NvsConstants, NvsKey, data::{Address, Record}, key_map::KeyMap,
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
-    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), T::WRITE_SIZE);
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
     
     #[must_use]
     pub fn init(mut partition: T) -> Option<Self>

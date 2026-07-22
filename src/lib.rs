@@ -33,15 +33,14 @@ pub trait NvsKey: Enumable + PartialEq
 
 pub trait NvsConstants
 {
-    #[type_const]
     const MAPPING_MAX_RANGE: u8;
-    #[type_const]
     const MAP_PRE_PADDING: u8;
-    #[type_const]
     const STATE_PAGES: u8;
-    #[type_const]
     /// From the first page of the map (should be at least `MAPPING_MAX_RANGE`)
     const MAP_POST_PADDING: u8;
+    /// The number of copies of some data needed to fit into a new page before it is
+    /// worth rewriting the entire page instead of moving to a new page
+    const REWRITE_COPY_SIZE_MULTIPLIER: u8 = 2;
     
     #[type_const]
     const PAGE_SIZE: u32;
