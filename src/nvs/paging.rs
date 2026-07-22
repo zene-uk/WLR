@@ -1,34 +1,124 @@
+use core::marker::PhantomData;
+
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{CheckConst, Nvs, NvsConstants, NvsKey, True};
+use crate::{NvsConstants, NvsKey, data::Address, key_map::{KeyMap, TableValue}, state::State};
+// use crate::{CheckConst, True};
 
-impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
-    where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        CheckConst<{ K::COUNT < 0xFFFF }>: True,
+pub(super) struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants>
+    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+        //CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: 
+        [(); T::READ_SIZE]: ,
+        [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        [(); K::COUNT]: 
 {
-    fn record_can_be_next_page(&self) -> bool
+    pub partition: &'a mut T,
+    pub key_map: &'a mut KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
+    pub next_data_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
+    pub next_record_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
+    pub state: &'a mut State<C, { T::ERASE_SIZE as u32 }>,
+    _phantom: PhantomData<C>
+}
+
+impl<'a, K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> NvsShadow<'a, K, T, C>
+    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+        //CheckConst<{ K::COUNT < 0xFFFF }>: True,
+        [(); T::WRITE_SIZE]: ,
+        [(); T::READ_SIZE]: ,
+        [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        [(); K::COUNT]: 
+{
+    pub fn new(partition: &'a mut T,
+        key_map: &'a mut KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
+        next_data_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
+        next_record_address: &'a mut Address<{ T::ERASE_SIZE as u32 }>,
+        state: &'a mut State<C, { T::ERASE_SIZE as u32 }>) -> Self
     {
-        let page = self.next_record_address.get_page();
-        // there are entries on the page
-        if !self.key_map.is_page_free(page) { return false; }
-        let map_start = self.state.get_value();
-        
-        return page - map_start < C::MAPPING_MAX_RANGE as u32;
+        return Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData };
     }
-    pub(super) fn prepare_map(&mut self, ignore: K) -> bool
+    
+    /// Ensures that the current record location is safe to write to
+    pub fn prepare_map(&mut self, ignore: K) -> bool
     {
         // continue writing to current page map
         if !self.next_record_address.is_page_start() { return true; }
-        if self.record_can_be_next_page()
+        let page = self.next_record_address.get_page();
+        
+        // need to move entries - do this before bringing back records to the front
+        if !self.key_map.is_page_free(page)
+        {
+            self.move_page(page, true, ignore);
+        }
+        
+        // dont need to move old records forward
+        if page - self.state.get_value() < C::MAPPING_MAX_RANGE as u32
         {
             // erase next page ready for records
-            return self.erase_page(self.next_record_address.get_page());
+            return self.erase_page(page);
         }
         
         // TODO
         
+        
         return true;
+    }
+    /// It must be ok to write to next_record_address and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
+    /// 
+    /// This function will also call `prepare_map` ready for the next record write
+    pub fn move_page(&mut self, page: u32, erase: bool, ignore: K) -> bool
+    {
+        let page_data = match self.read_page(page)
+        {
+            Some(d) => d,
+            None => return false
+        };
+        if erase
+        {
+            // incase we need to prepare for new records
+            self.erase_page(page);
+        }
+        
+        let iter = match self.key_map.get_page_values(page)
+        {
+            Some(i) => i,
+            None => return false
+        };
+        // iterate through items that need moving
+        for tr in iter
+        {
+            // skip ignore
+            if tr.get_key() == ignore { continue; }
+            // consider overflow data
+            
+            let addr = *self.next_data_address;
+            let mut shadow_copy = NvsShadow::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state);
+            shadow_copy.write_entry_data(&[], ignore);
+            
+            let tv = tr.get_current_value();
+            let rec_addr = *self.next_record_address;
+            NvsShadow::<_, _, C>::write_record(self.partition, self.next_record_address, tv, addr);
+            let size = tv.get_size();
+            tr.key_map.update_record(tr.get_key(), rec_addr, addr, size);
+            
+            let mut shadow_copy = NvsShadow::new(self.partition, tr.key_map, self.next_data_address, self.next_record_address, self.state);
+            shadow_copy.prepare_map(ignore);
+        }
+        
+        return true;
+    }
+    /// It must be ok to write to next_record_address and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
+    pub fn write_entry_data(&mut self, data: &[u8], ignore: K)
+    {
+        
+    }
+    /// It must be ok to write to next_record_address and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
+    fn write_record(partition: &mut T, nra: &mut Address<{ T::ERASE_SIZE as u32 }>,
+        record: &TableValue<K, { T::ERASE_SIZE as u32 }>, new_addr: Address<{ T::ERASE_SIZE as u32 }>)
+    {
+        
     }
 }

@@ -7,7 +7,8 @@ use alloc::boxed::Box;
 use enum_table::EnumTable;
 use micromap::Map;
 
-use crate::{CheckConst, NvsKey, True, data::Address, linked_list::LinkedList, round_up};
+use crate::{NvsKey, data::Address, linked_list::LinkedList, round_up};
+// use crate::{CheckConst, True};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
@@ -18,7 +19,7 @@ pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
     key: K
 }
 impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
-    where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+    where //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     #[inline]
     #[must_use]
@@ -62,7 +63,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
 
 pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
     where [(); K::COUNT]: ,
-        CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
+        //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
     // index by key
@@ -75,7 +76,7 @@ pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
 
 impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     where [(); K::COUNT]: ,
-        CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
+        //CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True,
         // CheckConst<{ K::COUNT < 0xFFFF }>: True
 {
     pub fn new() -> Self
@@ -168,6 +169,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         let p_start = self.page_table.get_mut(&old_page).unwrap();
         if p_start == &index
         {
+            // dont need to check end page - if the next item is on the same page, it will start on that page
             let next_page = self.linked_list.get_node(next_index).as_ref().data_address.get_page();
             if old_page == next_page
             {

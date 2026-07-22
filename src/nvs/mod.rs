@@ -1,17 +1,21 @@
 pub mod init;
 pub mod paging;
+mod common;
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{CheckConst, NvsConstants, NvsKey, Padding, True, data::Address, key_map::KeyMap, state::State};
+use crate::{NvsConstants, NvsKey, Padding, data::Address, key_map::KeyMap, paging::NvsShadow, state::State};
+// use crate::{CheckConst, True};
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
-    where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        CheckConst<{ K::COUNT < 0xFFFF }>: True,
+    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: 
+        [(); T::READ_SIZE]: ,
+        [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        [(); K::COUNT]: 
 {
     partition: T,
     key_map: KeyMap<K, { T::ERASE_SIZE as u32 }, { T::WRITE_SIZE }>,
@@ -22,11 +26,18 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 }
 
 impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
-    where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        CheckConst<{ K::COUNT < 0xFFFF }>: True,
+    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: 
-{   
+        [(); T::READ_SIZE]: ,
+        [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        [(); K::COUNT]: 
+{
+    pub fn as_shadow<'a>(&'a mut self) -> NvsShadow<'a, K, T, C>
+    {
+        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.next_data_address, &mut self.next_record_address, &mut self.state);
+    }
+    
     pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V)
         where V: PartialEq,
     {
@@ -78,7 +89,7 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         // if page is too full, increment to next page again
         // throw error if we have filled up our allowed space
         
-        self.prepare_map(key);
+        self.as_shadow().prepare_map(key);
     }
     
     /// Call after every block of writes
@@ -138,11 +149,5 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         }
         
         return true;
-    }
-    
-    fn erase_page(&mut self, page: u32) -> bool
-    {
-        let offset = page * T::ERASE_SIZE as u32;
-        return self.partition.erase(offset, offset + T::ERASE_SIZE as u32).is_ok();
     }
 }

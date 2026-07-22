@@ -3,13 +3,16 @@ use core::marker::PhantomData;
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{CheckConst, Nvs, NvsConstants, NvsKey, True, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
+use crate::{Nvs, NvsConstants, NvsKey, data::{Address, Record}, key_map::KeyMap, round_up, state::State};
+// use crate::{CheckConst, True};
 
 impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
-    where CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
-        CheckConst<{ K::COUNT < 0xFFFF }>: True,
+    where //CheckConst<{ (T::ERASE_SIZE as u32).is_power_of_two() }>: True,
+        // CheckConst<{ K::COUNT < 0xFFFF }>: True,
         [(); T::WRITE_SIZE]: ,
-        [(); T::READ_SIZE]: 
+        [(); T::READ_SIZE]: ,
+        [(); { T::ERASE_SIZE as u32 } as usize]: ,
+        [(); K::COUNT]: 
 {
     #[must_use]
     pub fn init(mut partition: T) -> Option<Self>
@@ -23,10 +26,10 @@ impl<K: NvsKey, T: NorFlash + 'static, C: NvsConstants + 'static> Nvs<K, T, C>
         let mut next_data_page = 0;
         let mut next_record_address = Address(0);
         
+        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
         // find all records
         for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32)
         {
-            let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
             // read page
             if partition.read(Address::<{ T::ERASE_SIZE as u32 }>::from_page(page as u32).0, &mut bytes).is_err()
             {

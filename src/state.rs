@@ -3,10 +3,11 @@ use core::{marker::PhantomData, mem::MaybeUninit};
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{CheckConst, NvsConstants, Padding, True, data::Address, round_up};
+use crate::{NvsConstants, Padding, data::Address, round_up};
+// use crate::{CheckConst, True};
 
 pub struct State<C: NvsConstants, const PAGE_SIZE: u32>
-    where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     address: Address<PAGE_SIZE>,
     value: u32,
@@ -15,16 +16,16 @@ pub struct State<C: NvsConstants, const PAGE_SIZE: u32>
 }
 
 impl<C: NvsConstants + 'static, const PAGE_SIZE: u32> State<C, PAGE_SIZE>
-    where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
+    // where CheckConst<{ PAGE_SIZE.is_power_of_two() }>: True
 {
     #[must_use]
     pub fn init<T: NorFlash>(partition: &mut T) -> Option<Self>
     {
         let offset = round_up!(size_of::<u32>(), T::WRITE_SIZE);
         
+        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
         for page in 0..C::STATE_PAGES
         {
-            let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(T::ERASE_SIZE).assume_init() };
             // read page
             if partition.read(Address::<PAGE_SIZE>::from_page(page as u32).0, &mut bytes).is_err()
             {

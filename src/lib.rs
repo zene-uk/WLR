@@ -16,11 +16,11 @@ mod key_map;
 mod state;
 mod linked_list;
 
-pub trait True {}
-pub struct CheckConst<const B: bool>;
-impl True for CheckConst<true> {}
+// pub trait True {}
+// pub struct CheckConst<const B: bool>;
+// impl True for CheckConst<true> {}
 
-pub trait NvsKey: Enumable
+pub trait NvsKey: Enumable + PartialEq
 {
     fn from_key_value(value: u16) -> Self
     {
