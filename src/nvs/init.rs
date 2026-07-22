@@ -14,13 +14,9 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     {
         // constants do not match
         if T::ERASE_SIZE != C::PAGE_SIZE as usize || T::WRITE_SIZE != C::WRITE_SIZE ||
-            T::READ_SIZE != C::READ_SIZE || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize
-        {
-            panic!();
-        }
-        
+            T::READ_SIZE != C::READ_SIZE || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
         // invalid constants
-        if !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
+            !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
         // The maximum number of records does not leave any empty space in the map
             K::COUNT >= 1 + (C::MAPPING_MAX_RANGE as u32 * C::PAGE_SIZE) as usize / Self::RECORD_OFFSET
         {
@@ -109,11 +105,12 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let next_data_address = Address::from_page(C::STATE_PAGES as u32 + 1 + C::MAP_POST_PADDING as u32);
         let next_record_address = Address::from_page(C::STATE_PAGES as u32);
         
-        // erase initial record page
-        map_err!{partition.erase(next_data_address.0, next_data_address.0 + T::ERASE_SIZE as u32)}?;
+        // page erasing is done in prepare functions
+        // // erase initial record page
+        // map_err!{partition.erase(next_data_address.0, next_data_address.0 + T::ERASE_SIZE as u32)}?;
         
-        // erase initial data page
-        map_err!{partition.erase(next_record_address.0, next_record_address.0 + T::ERASE_SIZE as u32)}?;
+        // // erase initial data page
+        // map_err!{partition.erase(next_record_address.0, next_record_address.0 + T::ERASE_SIZE as u32)}?;
         
         let state = map_err!{State::new(&mut partition, 0)}?;
         return Ok(Self { partition, key_map, next_data_address, next_record_address, state, _phantom: PhantomData })

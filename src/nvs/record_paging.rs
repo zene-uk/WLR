@@ -73,15 +73,17 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// It must be ok to write to next_record_address and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
-    /// Only writes the records data, does not update the key_map
+    /// Only writes the record data, does not update the key_map
+    #[must_use]
     pub fn write_record(partition: &mut T, nra: &mut Address<{ C::PAGE_SIZE }>,
         record: &TableValue<K, { C::PAGE_SIZE }>, new_addr: Address<{ C::PAGE_SIZE }>,
-        unused_map_page: u32) -> Result<(), NvsError<K, T>>
+        unused_map_page: u32) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
     {
         let mut write_data: Padding<Record<{ C::PAGE_SIZE }>, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
         write_data.0 = record.to_record_new_addr(new_addr);
         
-        map_err!{partition.write(nra.0, write_data.as_bytes(Self::RECORD_OFFSET))}?;
+        let addr = *nra;
+        map_err!{partition.write(addr.0, write_data.as_bytes(Self::RECORD_OFFSET))}?;
         
         // our old address is still in used pages
         let old_addr = record.get_record();
@@ -94,13 +96,14 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         
         // next address - bounds check in partition done on next prepare_map
         *nra += Self::RECORD_OFFSET as u32;
-        return Ok(());
+        return Ok(addr);
     }
     /// It must be ok to write to next_record_address and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Only writes the records data, does not update the key_map
-    pub fn write_new_record(&mut self, record: Record<{ C::PAGE_SIZE }>) -> Result<(), NvsError<K, T>>
+    #[must_use]
+    pub fn write_new_record(&mut self, record: Record<{ C::PAGE_SIZE }>) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
     {
         // sets the old record address to 0 and the unused page to 0 - so that it wont try to clear the old record as it does not exist
         let tv = TableValue::from_record(record, Address(0));

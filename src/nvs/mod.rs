@@ -103,12 +103,15 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // throw error if we have filled up our allowed space
         
         let mut shadow = self.as_shadow(|k| k == key);
+        // prepare next_record_address
         shadow.prepare_map()?;
+        let data_addr;
         
+        // actually write the data - this may change next_record_address
         // out is already aligned by WRITE_SIZE
         if size_of::<V>() % T::WRITE_SIZE == 0
         {
-            shadow.write_entry_data(bytemuck::bytes_of(value), &[], 0)?;
+            data_addr = shadow.write_entry_data(bytemuck::bytes_of(value), &[], 0)?;
         }
         // otherwise reallocate with extra space for alignment
         else
@@ -118,10 +121,34 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // round up to READ_SIZE
             let size = round_up!(size_of::<V>(), T::READ_SIZE);
             
-            shadow.write_entry_data(v.as_bytes(size), &[], 0)?;
+            data_addr = shadow.write_entry_data(v.as_bytes(size), &[], 0)?;
         }
         
-        // TODO
+        // write and update the record
+        match shadow.key_map.get_table_value(key)
+        {
+            Some(mut tv) =>
+            {
+                tv.set_size(size_of::<V>() as u16);
+                let rec_addr = NvsShadow::<'_, K, T, C, fn(K) -> bool>::write_record(&mut self.partition,
+                    &mut self.next_record_address, &tv, data_addr, 0)?;
+                let record = tv.to_record_new_addr(data_addr);
+                if self.key_map.update_record(record, rec_addr).is_none()
+                {
+                    return Err(NvsError::MissingKey(key));
+                }
+            },
+            None =>
+            {
+                let size = size_of::<V>() as u16;
+                let record = Record { size, key: key.get_key_value(), address: data_addr };
+                let rec_addr = shadow.write_new_record(record)?;
+                if !self.key_map.add_value_page(record, rec_addr)
+                {
+                    return Err(NvsError::DuplicateKey(key));
+                }
+            }
+        }
         
         return Ok(());
     }

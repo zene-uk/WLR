@@ -58,6 +58,11 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
         return self.data_size;
     }
     #[inline]
+    pub fn set_size(&mut self, size: u16)
+    {
+        self.data_size = size;
+    }
+    #[inline]
     #[must_use]
     pub fn get_end_page(&self) -> u32
     {
