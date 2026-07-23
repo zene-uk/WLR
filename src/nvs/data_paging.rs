@@ -91,9 +91,9 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
             self.page_address.update_address_record = true;
             let potential_space = self.key_map.get_available_page_space(page, &self.ignore);
             
-            let min_space = data_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32;
+            // let min_space = data_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32;
             // should not use this page - next page and prepare again
-            if potential_space < min_space
+            if !C::should_rewrite_page(potential_space, data_size)
             {
                 self.next_data_page();
                 return PreparePage::Repeat;
@@ -106,7 +106,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
                 return PreparePage::Fail(err);
             }
             // move_data_page ended up moving more data than expected - next page and prepare again
-            if self.page_address.data.get_remaining_space() < min_space
+            if !C::should_rewrite_page(self.page_address.data.get_remaining_space(), data_size)
             {
                 self.next_data_page();
                 return PreparePage::Repeat;
@@ -138,7 +138,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
         let potential_space = self.key_map.get_available_page_space(page + 1, &self.ignore);
         
         // should not use the page - so no overflow allowed - next page and prepare again
-        if potential_space < overflow_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32
+        if !C::should_rewrite_page(potential_space, overflow_size)
         {
             self.next_data_page();
             return PreparePage::Repeat;

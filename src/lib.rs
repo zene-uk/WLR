@@ -45,7 +45,7 @@ pub trait NvsConstants
     const MAP_POST_PADDING: u8;
     /// The number of copies of some data needed to fit into a new page before it is
     /// worth rewriting the entire page instead of moving to a new page
-    const REWRITE_COPY_SIZE_MULTIPLIER: u8 = 2;
+    // const REWRITE_COPY_SIZE_MULTIPLIER: u8 = 2;
     
     /// The total number of available pages
     const TOTAL_PAGES: u32;
@@ -56,6 +56,13 @@ pub trait NvsConstants
     const WRITE_SIZE: usize;
     #[type_const]
     const READ_SIZE: usize;
+    
+    /// determines whether or not it is worth rewriting the entire page to fit in some data
+    /// WARNING: this function needs to return `false` if the data cannot fit
+    fn should_rewrite_page(remaining_space: u32, required_space: u32) -> bool
+    {
+        return remaining_space >= required_space * 2;
+    }
 }
 
 macro_rules! round_up {
