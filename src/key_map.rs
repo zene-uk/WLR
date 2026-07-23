@@ -307,10 +307,16 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return space;
     }
     #[must_use]
+    #[inline]
     pub fn is_page_free(&self, page: u32) -> bool
     {
         // includes overflow entries as well
         return !self.page_table.contains_key(&page);
+    }
+    #[inline]
+    pub fn is_key_on_page(&self, key: K, page: u32) -> bool
+    {
+        return self.get_table_value(key).is_some_and(|tv| tv.is_on_page(page));
     }
     
     #[must_use]

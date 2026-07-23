@@ -3,9 +3,9 @@ use core::mem::MaybeUninit;
 use bytemuck::Zeroable;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsError, NvsKey, Padding, data::{Address, Record}, key_map::TableValue, map_err, nvs::NvsShadow, state::State};
+use crate::{Ignore, NvsConstants, NvsError, NvsKey, Padding, data::{Address, Record}, key_map::TableValue, map_err, nvs::NvsShadow, state::State};
 
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
 {
     /// Ensures that the current record location is safe to write to
     pub fn prepare_map(&mut self) -> Result<(), NvsError<K, T>>
@@ -45,7 +45,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         if !self.key_map.is_page_free(page)
         {
             // by setting erase to true, next_record_address is safe to write to when record calls are made
-            self.move_data_page(page, true)?;
+            self.move_data_page(page, true, false)?;
         }
         // dont recalculate move_records as if they needed moving, another prepare_map call would have dont it
         // dont need to move old records forward
@@ -78,7 +78,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         for mut tr in self.key_map.iter_map_page_values(page)
         {
             // skip ignore
-            if (self.ignore)(tr.get_key()) { continue; }
+            if (self.ignore)(tr.get_key(), tr.key_map) { continue; }
             
             let tv = tr.get_current_value_mut();
             // rewrite record to new location
@@ -86,6 +86,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
                 &mut self.page_address.record, tv, tv.get_address())?;
             tv.set_record(rec_addr);
             
+            // no need to modify ignore (also shouldnt as we are only writing records)
+            // - this page of records wont be considered at by the next prepare_map
             let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address, self.state, &self.ignore);
             // call in preparation for the next record to be moved
             shadow_copy.prepare_map()?;

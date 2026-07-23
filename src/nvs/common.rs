@@ -1,9 +1,9 @@
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsError, NvsKey, data::Address, map_err, nvs::NvsShadow, state::State};
+use crate::{Ignore, NvsConstants, NvsError, NvsKey, data::Address, map_err, nvs::NvsShadow, state::State};
 
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
 {
     pub fn erase_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {

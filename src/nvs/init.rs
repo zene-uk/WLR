@@ -97,7 +97,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // get next page
         if run_next_page
         {
-            let mut shadow = res.as_shadow(|_| false);
+            let mut shadow = res.as_shadow(|_, _| false);
             shadow.next_data_page();
         }
         return Ok(res);

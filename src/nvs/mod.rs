@@ -9,6 +9,10 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
 
+pub type IgnoreTy<K, C> = fn(K, &KeyMap<K, { <C as NvsConstants>::PAGE_SIZE }, { <C as NvsConstants>::WRITE_SIZE }>) -> bool;
+pub trait Ignore<K: NvsKey, C: NvsConstants>: Fn(K, &KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>) -> bool {}
+impl<K: NvsKey, C: NvsConstants, T: Fn(K, &KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>) -> bool> Ignore<K, C> for T {}
+
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 {
     partition: T,
@@ -18,7 +22,7 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     state: State<T, C>,
     _phantom: PhantomData<C>
 }
-struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
+struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Ignore<K, C>>
 {
     partition: &'a mut T,
     key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
@@ -28,7 +32,7 @@ struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
     ignore: F,
     _phantom: PhantomData<C>
 }
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
 {
     const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
     
@@ -44,7 +48,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
-    fn as_shadow<'a, F: Fn(K) -> bool>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
+    fn as_shadow<'a, F: Ignore<K, C>>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
         return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.state, ignore);
     }
@@ -107,7 +111,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             return Err(NvsError::DataTooBig(size_of::<V>()))
         }
         
-        let mut shadow = self.as_shadow(|k| k == key);
+        let mut shadow = self.as_shadow(|k, _| k == key);
         // prepare next_record_address
         shadow.prepare_map()?;
         let data_addr;
@@ -116,7 +120,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // out is already aligned by WRITE_SIZE
         if size_of::<V>() % C::WRITE_SIZE == 0
         {
-            data_addr = shadow.write_entry_data(bytemuck::bytes_of(value), &[])?;
+            data_addr = shadow.write_entry_data(bytemuck::bytes_of(value), &[], false)?;
         }
         // otherwise reallocate with extra space for alignment
         else
@@ -126,7 +130,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // round up to WRITE_SIZE
             let size = round_up!(size_of::<V>(), C::WRITE_SIZE);
             
-            data_addr = shadow.write_entry_data(v.as_bytes(size), &[])?;
+            data_addr = shadow.write_entry_data(v.as_bytes(size), &[], false)?;
         }
         
         let size = size_of::<V>() as u16;
@@ -136,7 +140,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             Some(mut tv) =>
             {
                 tv.set_size(size);
-                let rec_addr = NvsShadow::<'_, K, T, C, fn(K) -> bool>::write_record(&mut self.partition,
+                let rec_addr = NvsShadow::<'_, K, T, C, IgnoreTy<K, C>>::write_record(&mut self.partition,
                     &self.state, &mut self.page_address.record, &tv, data_addr)?;
                 let record = tv.to_record_new_addr(data_addr);
                 if self.key_map.update_record(record, rec_addr).is_none()
@@ -169,12 +173,12 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // rewrite current data page
         if self.page_address.update_address_record
         {
-            let mut shadow = self.as_shadow(|_| false);
+            let mut shadow = self.as_shadow(|_, _| false);
             // retain this order
             shadow.prepare_map()?;
             // this is only called to make sure the value prepare_map
             // left in next_data_address is in the partition
-            shadow.prepare_data_page(0)?;
+            shadow.prepare_data_page(0, false)?;
             shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.page_address.get_data_page()) })?;
             self.page_address.update_address_record = false;
         }
