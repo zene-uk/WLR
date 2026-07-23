@@ -207,6 +207,22 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             // and also when we get to the last value to read its overflow data but thats now been overridden by records
             
             let tv = tr.get_current_value();
+            // ignore overflow entries whose data ends on this page (not starts)
+            if tv.is_overflow_on(page)
+            {
+                // if we are writing to this page and next_data_address is at the start
+                if page_rewrite && from_prepare && self.page_address.data.is_page_start()
+                {
+                    // write the overflow from the previous page back to where it was
+                    let size = tv.get_overflow_size(C::WRITE_SIZE as u32) as usize;
+                    // dont need to change ignore, from_prepare is true
+                    let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map,
+                        self.page_address, self.state, &self.ignore);
+                    shadow_copy.write_entry_data(&page_data[..size], &[], true)?;
+                }
+                continue;
+            }
+            
             let (data, extra_data) = Self::get_tv_data(self.partition, tv, &page_data, page)?;
             
             let addr;
@@ -251,20 +267,28 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
     /// `data1` and `data2` both must be aligned to `WRITE_SIZE` individually
     pub fn write_entry_data(&mut self, data1: &[u8], data2: &[u8], from_prepare: bool) -> Result<Address<{ C::PAGE_SIZE }>, NvsError<K, T>>
     {
-        let size = data1.len() + data2.len();
+        let (d1_len, d2_len) = (data1.len(), data2.len());
+        let size = d1_len + d2_len;
         let next_addr = self.prepare_data_page(size as u32, from_prepare)?;
         
         let addr = self.page_address.data;
         // can safely write to next_data_address
-        map_err!{self.partition.write(addr.0, data1)}?;
-        map_err!{self.partition.write(addr.0 + data1.len() as u32, data2)}?;
+        if d1_len > 0
+        {
+            map_err!{self.partition.write(addr.0, data1)}?;
+        }
+        if d2_len > 0
+        {
+            map_err!{self.partition.write(addr.0 + d1_len as u32, data2)}?;
+        }
         
         // increment data address
         self.page_address.data = next_addr;
         return Ok(addr);
     }
     #[must_use]
-    fn get_tv_data<'b>(partition: &mut T, tv: &TableValue<K, { C::PAGE_SIZE }>, page_data: &'b [u8], page: u32) -> Result<(&'b [u8], Box<[u8]>), NvsError<K, T>>
+    fn get_tv_data<'b>(partition: &mut T, tv: &TableValue<K, { C::PAGE_SIZE }>,
+        page_data: &'b [u8], page: u32) -> Result<(&'b [u8], Box<[u8]>), NvsError<K, T>>
     {
         let overflow_size = tv.get_overflow_size(C::WRITE_SIZE as u32) as usize;
         let data_footprint = tv.get_data_footprint(C::WRITE_SIZE as u32) as usize;

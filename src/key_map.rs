@@ -79,6 +79,12 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
     {
         return self.data_address.get_page() == page || self.get_end_page() == page;
     }
+    #[inline]
+    #[must_use]
+    pub fn is_overflow_on(&self, page: u32) -> bool
+    {
+        return self.data_address.get_page() != page && self.get_end_page() == page;
+    }
     #[must_use]
     pub fn get_overflow_size(&self, ws: u32) -> u32
     {
