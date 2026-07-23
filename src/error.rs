@@ -8,6 +8,7 @@ pub enum NvsError<K :NvsKey, T: NorFlash>
     MissingPageData,
     MissingState,
     MissingCacheData,
+    AlreadyStartedWriteQueue,
     /// The data size of the given type is not algined with the minimum read or write size.
     /// This occurs when trying to read or write a arrays.
     InconsistentSize(u16),

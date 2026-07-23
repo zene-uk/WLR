@@ -1,18 +1,20 @@
-mod init;
 mod record_paging;
 mod data_paging;
 mod common;
 mod page_address;
+mod read;
+mod write;
 
-use core::{marker::PhantomData, mem::MaybeUninit};
-use alloc::slice;
+use core::marker::PhantomData;
+use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
+use hashbrown::HashMap;
 
-use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, cache::{PageCache, PageData}, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
+use crate::{NvsConstants, NvsError, NvsKey, cache::PageCache, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
 
-pub(crate) type IgnoreTy<K, C> = fn(K, &KeyMap<K, { <C as NvsConstants>::PAGE_SIZE }, { <C as NvsConstants>::WRITE_SIZE }>) -> bool;
-pub(crate) trait Ignore<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>: Fn(K, &KeyMap<K, PAGE_SIZE, WS>) -> bool {}
-impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize, T: Fn(K, &KeyMap<K, PAGE_SIZE, WS>) -> bool> Ignore<K, PAGE_SIZE, WS> for T {}
+pub(crate) type IgnoreTy<K, C> = fn(K, &KeyMap<K, { <C as NvsConstants>::PAGE_SIZE }, { <C as NvsConstants>::WRITE_SIZE }>, bool) -> bool;
+pub(crate) trait Ignore<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>: Fn(K, &KeyMap<K, PAGE_SIZE, WS>, bool) -> bool {}
+impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize, T: Fn(K, &KeyMap<K, PAGE_SIZE, WS>, bool) -> bool> Ignore<K, PAGE_SIZE, WS> for T {}
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 {
@@ -22,6 +24,7 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     page_address: PageAddresses<{ C::PAGE_SIZE }>,
     cache: PageCache,
     state: State<T, C>,
+    write_queue: Option<HashMap<K, (&'static [u8], bool)>>,
     _phantom: PhantomData<C>
 }
 struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>>
@@ -52,259 +55,143 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
+    
     fn as_shadow<'a, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
         return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.cache, &mut self.state, ignore);
     }
     
-    pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
-        where V: PartialEq,
+    fn check_consts(partition: &mut T)
     {
-        let mut tmp: V = unsafe { MaybeUninit::zeroed().assume_init() };
-        self.read_key_value(key, &mut tmp)?;
-        if value == &tmp
+        // constants do not match
+        if (C::PAGE_SIZE as usize).is_multiple_of(T::ERASE_SIZE) || C::WRITE_SIZE.is_multiple_of(T::WRITE_SIZE) ||
+            C::READ_SIZE.is_multiple_of(T::READ_SIZE) || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
+        // invalid constants
+            !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
+        // The maximum number of records does not leave any empty space in the map
+            K::COUNT >= 1 + (C::MAPPING_MAX_RANGE as u32 * C::PAGE_SIZE) as usize / Self::RECORD_OFFSET ||
+        // too many pages - not likely to ever be needed and helps reduce the cache memory footprint
+            C::TOTAL_PAGES >= i32::MAX as u32 ||
+        // page size too big - also helps reduce cache memory footprint
+            C::PAGE_SIZE >= u16::MAX as u32
         {
-            return Ok(());
+            panic!();
         }
-        
-        return self.write_key_value_force(key, value);
     }
-    pub fn write_key_values<V: bytemuck::Pod>(&mut self, key: K, values: &[V]) -> Result<(), NvsError<K, T>>
-        where V: PartialEq,
+    
+    #[must_use]
+    pub fn init(mut partition: T) -> Result<Self, NvsError<K, T>>
     {
-        let size = size_of::<V>() * values.len();
-        // data cannot be bigger than a page
-        if size > C::PAGE_SIZE as usize
+        Self::check_consts(&mut partition);
+        
+        let state = State::init(&mut partition)?;
+        let record_page = state.get_old_value();
+        
+        let mut key_map = KeyMap::new();
+        
+        let mut next_data_page = 0;
+        let mut next_record_address = Address(0);
+        let mut address_record = Address(0);
+        
+        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(C::PAGE_SIZE as usize).assume_init() };
+        // find all records
+        for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32 - 1)
         {
-            return Err(NvsError::DataTooBig(size))
-        }
-        // use cache as temporary data - it won't be in use at this time
-        // data can't be bigger than page size
-        let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
-        // round up to READ_SIZE
-        let align_size = round_up!(size, C::READ_SIZE);
-        
-        self.read_key_values_inner(key, &mut bytes[..align_size], false)?;
-        // do nothing as data hasn't changed
-        if values == bytemuck::cast_slice(&bytes[..size])
-        {
-            self.cache.return_cold(bytes);
-            return Ok(());
-        }
-        
-        self.cache.return_cold(bytes);
-        return self.write_key_values_force(key, values);
-    }
-    #[inline]
-    /// Does not check whether the data has changed or not
-    pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
-    {
-        return self.write_key_values_force(key, slice::from_ref(value));
-    }
-    /// Does not check whether the data has changed or not
-    pub fn write_key_values_force<V: bytemuck::Pod>(&mut self, key: K, values: &[V]) -> Result<(), NvsError<K, T>>
-    {
-        // order of operations:
-        // check whether next record is on new page
-        // check whether we need to move some items - ignore the item we are about to change - read entire page into memory so that we can write new records
-        // update their records first, (no need to clear old values if they are on a page about to be moved)
-        //      also the number of items moved to make way for a new page will be less than a full page of records
-        //      may need to move more if the data pages we are writing to need reorganising
-        //      calculate all new records first - then start moving data
-        // then move back records to front if the mapping range is to long - ignore the item we are about to change (and data page if applicable)
-        // (repeat until we can add our new record)
-        // update state if needed
-        // check whether the next data address is on a new page - find next page if needed
-        // check whether our data can fit on the page - find next page if needed
-        // update data page record if needed
-        // add data
-        // add new record
-        
-        // on update_records:
-        // if next address is on new page:
-        //      if page contains data:
-        //          move those items
-        //          clear up to MAP_POST_PADDING
-        //      if map range is now too big
-        //          move back records to front to clear page
-        //          change state
-        // add new record
-        
-        // on get_next_page:
-        // increment page counter
-        // skip over mapping region
-        // if page contains contents:
-        //      page is too full if we cant add at least 2x the data we want to
-        //      read data - entire page, then use record data into that memory region
-        //      clear page
-        //      write back old data
-        // if page is too full, increment to next page again
-        // throw error if we have filled up our allowed space
-        
-        let size = size_of::<V>() * values.len();
-        if size == 0 { return Ok(()); }
-        
-        // data cannot be bigger than a page
-        if size > C::PAGE_SIZE as usize
-        {
-            return Err(NvsError::DataTooBig(size))
-        }
-        
-        let mut shadow = self.as_shadow(|k, _| k == key);
-        // prepare page_address.record
-        shadow.prepare_map()?;
-        let data_addr;
-        
-        // actually write the data - this may change page_address.record
-        // out is already aligned by WRITE_SIZE
-        if size % C::WRITE_SIZE == 0
-        {
-            data_addr = shadow.write_entry_data(PageData::Borrowed(bytemuck::cast_slice(values)), PageData::None, false)?;
-        }
-        // otherwise reallocate with extra space for alignment
-        else if values.len() == 1 // more efficient method for only one
-        {
-            let mut v: Padding<V, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
-            v.0 = values[0];
-            // round up to WRITE_SIZE
-            let size = round_up!(size, C::WRITE_SIZE);
+            // read page
+            map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
             
-            data_addr = shadow.write_entry_data(PageData::Borrowed(v.as_bytes(size)), PageData::None, false)?;
-        }
-        else
-        {
-            // use cache as temporary data - it may be needed here but oh well (quite unlikely to cause much overhead)
-            // data can't be bigger than page size
-            let mut bytes = shadow.cache.get_or_alloc(C::PAGE_SIZE as usize);
-            bytes.copy_from_slice(bytemuck::cast_slice(values));
-            // round up to WRITE_SIZE
-            let align_size = round_up!(size, C::WRITE_SIZE);
-            
-            data_addr = shadow.write_entry_data(PageData::Borrowed(&bytes[..align_size]), PageData::None, false)?;
-            shadow.cache.return_cold(bytes);
-        }
-        
-        // all cached pages are out of date now - the old data exists somewhere else
-        shadow.cache.drop_all_pages();
-        
-        let size = size as u16;
-        // write and update the record
-        match shadow.key_map.get_table_value(key)
-        {
-            Some(mut tv) =>
+            for i in (0..C::PAGE_SIZE as usize).step_by(Self::RECORD_OFFSET)
             {
-                tv.set_size(size);
-                let rec_addr = NvsShadow::<'_, K, T, C, IgnoreTy<K, C>>::write_record(&mut self.partition,
-                    &self.state, &mut self.page_address.record, &tv, data_addr)?;
-                let record = tv.to_record_new_addr(data_addr);
-                if self.key_map.update_record(record, rec_addr).is_none()
+                let key: u32 = *bytemuck::from_bytes(&bytes[i..(i+size_of::<u32>())]);
+                match key
                 {
-                    return Err(NvsError::MissingKey(key));
-                }
-            },
-            None =>
-            {
-                let record = Record { size, key: key.get_key_value(), address: data_addr };
-                let rec_addr = shadow.write_new_record(record)?;
-                if !self.key_map.add_value_page(record, rec_addr)
-                {
-                    return Err(NvsError::DuplicateKey(key));
+                    // stores extra value - last one found is that actual data
+                    // means we dont have to override old ones with zeros
+                    0xFFFF_0000 =>
+                    {
+                        // read next u32
+                        let value: u32 = *bytemuck::from_bytes(&bytes[(i+size_of::<u32>())..(i+size_of::<u32>()+size_of::<u32>())]);
+                        next_data_page = value;
+                        address_record = Address::from_page_offset(page, i as u32);
+                    },
+                    // unset data - no more records
+                    0xFFFF_FFFF =>
+                    {
+                        next_record_address = Address::from_page_offset(page, i as u32);
+                    }
+                    // empty record
+                    0 => continue,
+                    // record contains data
+                    _ =>
+                    {
+                        let record: Record<{ C::PAGE_SIZE }> = 
+                            *bytemuck::from_bytes(&bytes[i..(i+size_of::<Record<{ C::PAGE_SIZE }>>())]);
+                        let ra = Address::from_page_offset(page, i as u32);
+                        if !key_map.add_value(record, ra)
+                        {
+                            return Err(NvsError::DuplicateKey(record.get_key()));
+                        }
+                    }
                 }
             }
         }
         
-        // do that at the very end so that our record update
-        // doesnt clear its old potentially invalid location 
-        self.state.shift_tmp_to_value();
+        // create page info
+        key_map.initialise();
         
-        return Ok(());
-    }
-    
-    /// Call after every block of writes
-    #[inline]
-    pub fn flush(&mut self) -> Result<(), NvsError<K, T>>
-    {
-        // rewrite current data page
-        if self.page_address.update_address_record
+        let mut run_next_page = false;
+        let next_data_address = match key_map.get_page_next_address(next_data_page)
         {
-            let mut shadow = self.as_shadow(|_, _| false);
-            // retain this order
-            shadow.prepare_map()?;
-            // this is only called to make sure the value prepare_map
-            // left in page_address.data is in the partition
-            shadow.prepare_data_page(0, false)?;
-            shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.page_address.get_data_page()) })?;
-            self.page_address.update_address_record = false;
-        }
-        
-        // write state value
-        return map_err!{self.state.sync_value(&mut self.partition)};
-    }
-    
-    #[must_use]
-    pub fn read_key_value_direct<V: bytemuck::Pod>(&mut self, key: K) -> Result<V, NvsError<K, T>>
-    {
-        let mut result: V = unsafe { MaybeUninit::zeroed().assume_init() };
-        return self.read_key_value(key, &mut result).map(|_| result);
-    }
-    #[inline]
-    pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> Result<(), NvsError<K, T>>
-    {
-        return self.read_key_values_inner(key, slice::from_mut(out), true);
-    }
-    #[inline]
-    pub fn read_key_values<V: bytemuck::Pod>(&mut self, key: K, out: &mut [V]) -> Result<(), NvsError<K, T>>
-    {
-        return self.read_key_values_inner(key, out, true);
-    }
-    pub fn read_key_values_inner<V: bytemuck::Pod>(&mut self, key: K, out: &mut [V], size_check: bool) -> Result<(), NvsError<K, T>>
-    {
-        let size = size_of::<V>() * out.len();
-        if size == 0 { return Ok(()); }
-        
-        let tv = match self.key_map.get_table_value(key)
-        {
-            Some(tv) => tv,
-            None => return Err(NvsError::MissingKey(key))
+            Some(a) => a,
+            None =>
+            {
+                run_next_page = true;
+                Address::from_page(next_data_page)
+            }
         };
         
-        // tv.get_size() <= C::PAGE_SIZE so too big is not a concern
-        if size_check && tv.get_size() as usize != size// || size > C::PAGE_SIZE
-        {
-            return Err(InconsistentSize(tv.get_size()));
-        }
+        let page_address = PageAddresses { data: next_data_address, record: next_record_address,
+            address_record, update_address_record: false };
+        // add our allocation to the cold count
+        let mut cache = PageCache::new();
+        cache.cache_page(1, bytes, C::PAGE_SIZE as u16);
+        cache.drop_all_pages();
         
-        // out is already aligned by READ_SIZE
-        if size % C::READ_SIZE == 0
+        let mut res = Self { partition, key_map, page_address, cache, state,
+            write_queue: Some(HashMap::with_capacity(K::COUNT)), _phantom: PhantomData };
+        // get next page
+        if run_next_page
         {
-            map_err!{self.partition.read(tv.get_address().0, bytemuck::cast_slice_mut(out))}?;
+            let mut shadow = res.as_shadow(|_, _, _| false);
+            shadow.next_data_page();
         }
-        // otherwise reallocate with extra space for alignment
-        else if out.len() == 1 // more efficient method for only one
-        {
-            let mut v: Padding<V, { C::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
-            // round up to READ_SIZE
-            let size = round_up!(size, C::READ_SIZE);
-            
-            map_err!{self.partition.read(tv.get_address().0, v.as_bytes_mut(size))}?;
-            
-            out[0] = v.0;
-            return Ok(());
-        }
-        else
-        {
-            // use cache as temporary data - it won't be in use at this time
-            // data can't be bigger than page size
-            let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
-            // round up to READ_SIZE
-            let align_size = round_up!(size, C::READ_SIZE);
-            
-            map_err!{self.partition.read(tv.get_address().0, &mut bytes[..align_size])}?;
-            // copy to output
-            bytemuck::cast_slice_mut(out).copy_from_slice(&bytes[..size]);
-            self.cache.return_cold(bytes);
-        }
+        return Ok(res);
+    }
+    #[must_use]
+    pub fn new(mut partition: T) -> Result<Self, NvsError<K, T>>
+    {
+        Self::check_consts(&mut partition);
         
-        return Ok(());
+        let mut key_map = KeyMap::new();
+        key_map.initialise();
+        
+        let next_data_address = Address::from_page(C::STATE_PAGES as u32 + 1 + C::MAP_POST_PADDING as u32);
+        let next_record_address = Address::from_page(C::STATE_PAGES as u32);
+        let address_record = next_record_address;
+        
+        // page erasing is done in prepare functions
+        // // erase initial record page
+        // map_err!{partition.erase(next_data_address.0, next_data_address.0 + C::PAGE_SIZE)}?;
+        
+        // // erase initial data page
+        // map_err!{partition.erase(next_record_address.0, next_record_address.0 + C::PAGE_SIZE)}?;
+        
+        let page_address = PageAddresses { data: next_data_address, record: next_record_address,
+            address_record, update_address_record: true };
+        
+        let state = map_err!{State::new(&mut partition, 0)}?;
+        return Ok(Self { partition, key_map, page_address, cache: PageCache::new(), state,
+            write_queue: Some(HashMap::with_capacity(K::COUNT)), _phantom: PhantomData })
     }
 }

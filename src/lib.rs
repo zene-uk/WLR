@@ -4,6 +4,7 @@
 
 extern crate alloc;
 
+use core::hash::Hash;
 use enum_table::Enumable;
 
 mod nvs;
@@ -12,15 +13,16 @@ pub use crate::nvs::*;
 mod error;
 pub use crate::error::*;
 
-mod data;
-// pub use crate::data::*;
+mod write_queue;
+pub use crate::write_queue::*;
 
+mod data;
 mod key_map;
 mod state;
 mod linked_list;
 mod cache;
 
-pub trait NvsKey: Enumable + PartialEq
+pub trait NvsKey: Enumable + Hash + Eq
 {
     #[type_const]
     const LEN: usize;

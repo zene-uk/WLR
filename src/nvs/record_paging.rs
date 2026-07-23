@@ -77,8 +77,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
         
         for mut tr in self.key_map.iter_map_page_values(page)
         {
-            // skip ignore
-            if (self.ignore)(tr.get_key(), tr.key_map) { continue; }
+            // skip ignore - true because we are clearing their data here
+            if (self.ignore)(tr.get_key(), tr.key_map, true) { continue; }
             
             let tv = tr.get_current_value_mut();
             // rewrite record to new location

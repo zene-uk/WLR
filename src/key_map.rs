@@ -292,8 +292,8 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         while node.as_ref().is_on_page(page)
         {
             let tv = node.as_ref();
-            // ignore data that is about to be moved
-            if ignore(tv.key, self) { continue; }
+            // ignore data that is about to be moved - false because we aren't clearing them here
+            if ignore(tv.key, self, false) { continue; }
             
             let size = match tv.data_address.get_page() != page
             {

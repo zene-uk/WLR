@@ -195,8 +195,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
         for tr in iter
         {
             let key = tr.get_key();
-            // skip ignore
-            if (self.ignore)(key, tr.key_map) { continue; }
+            // skip ignore - true because we are clearing their data here
+            if (self.ignore)(key, tr.key_map, true) { continue; }
             // consider overflow data
             
             let tv = tr.get_current_value();
@@ -228,7 +228,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
                 let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address,
                 // only add this current entry to the ignore
                 // - cannot check by page as previous iterations are now written to this page
-                    self.cache, self.state, |k, km| k == key || (self.ignore)(k, km));
+                    self.cache, self.state, |k, km, clear| k == key || (self.ignore)(k, km, clear));
                 addr = shadow_copy.write_entry_data(data, extra_data, from_prepare)?;
             }
             else
@@ -236,7 +236,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
                 let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address,
                 // add the entries on this page to the ignore - only do this if we are writing to a new page
                 // (because all records listed to this page are the ones about to be moved)
-                    self.cache, self.state, |k, km| (self.ignore)(k, km) || km.is_key_on_page(k, page));
+                    self.cache, self.state, |k, km, clear| (self.ignore)(k, km, clear) || km.is_key_on_page(k, page));
                 addr = shadow_copy.write_entry_data(data, extra_data, from_prepare)?;
             }
             
