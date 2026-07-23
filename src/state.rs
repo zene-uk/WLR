@@ -7,7 +7,7 @@ use crate::{NvsConstants, NvsError, NvsKey, Padding, data::Address, map_err, rou
 
 pub struct State<T: NorFlash, C: NvsConstants>
 {
-    address: Address<{ C::PAGE_SIZE }>,
+    address: Address<C>,
     value: u32,
     tmp_value: u32,
     synced: bool,
@@ -15,6 +15,7 @@ pub struct State<T: NorFlash, C: NvsConstants>
 }
 
 impl<T: NorFlash, C: NvsConstants + 'static> State<T, C>
+    where [(); C::WRITE_SIZE]:
 {
     const OFFSET: usize = round_up!(size_of::<u32>(), C::WRITE_SIZE);
     
@@ -25,7 +26,7 @@ impl<T: NorFlash, C: NvsConstants + 'static> State<T, C>
         for page in 0..C::STATE_PAGES
         {
             // read page
-            map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
+            map_err!{partition.read(Address::<C>::from_page(page as u32).0, &mut bytes)}?;
             
             for i in (0..C::PAGE_SIZE as usize).step_by(Self::OFFSET)
             {
@@ -52,7 +53,7 @@ impl<T: NorFlash, C: NvsConstants + 'static> State<T, C>
         partition.write(0, buffer.as_bytes(Self::OFFSET))?;
         
         // address is the current location, next one will be calculated when needed
-        return Ok(Self { address: Address(0), value, tmp_value: value, synced: true, _phatom: PhantomData });
+        return Ok(Self { address: Address::u(0), value, tmp_value: value, synced: true, _phatom: PhantomData });
     }
     
     pub fn sync_value(&mut self, partition: &mut T) -> Result<(), T::Error>

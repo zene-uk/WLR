@@ -1,6 +1,7 @@
 #![no_std]
 #![allow(incomplete_features)]
-#![feature(min_generic_const_args)]
+// #![feature(min_generic_const_args)]
+#![feature(generic_const_exprs)]
 
 extern crate alloc;
 
@@ -24,8 +25,7 @@ mod cache;
 
 pub trait NvsKey: Enumable + Hash + Eq
 {
-    #[type_const]
-    const LEN: usize;
+    // const LEN: usize;
     
     fn from_key_value(value: u16) -> Self
     {
@@ -37,7 +37,7 @@ pub trait NvsKey: Enumable + Hash + Eq
     }
 }
 
-pub trait NvsConstants
+pub trait NvsConstants: Copy + Ord + 'static
 {
     /// Max number of pages used by the map
     const MAPPING_MAX_RANGE: u8;
@@ -52,11 +52,11 @@ pub trait NvsConstants
     /// The total number of available pages
     const TOTAL_PAGES: u32;
     
-    #[type_const]
+    // #[type_const]
     const PAGE_SIZE: u32;
-    #[type_const]
+    // #[type_const]
     const WRITE_SIZE: usize;
-    #[type_const]
+    // #[type_const]
     const READ_SIZE: usize;
     
     /// determines whether or not it is worth rewriting the entire page to fit in some data

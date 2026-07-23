@@ -5,7 +5,9 @@ use hashbrown::HashMap;
 
 use crate::{Ignore, IgnoreTy, Nvs, NvsConstants, NvsError, NvsKey, Padding, WriteQueue, cache::PageData, data::{Address, Record}, key_map::KeyMap, map_err, nvs::NvsShadow, round_up};
 
-impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
+impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> Nvs<K, T, C, KEY_COUNT>
+    where [(); C::WRITE_SIZE]: ,
+        [(); C::READ_SIZE]:
 {
     pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
         where V: PartialEq,
@@ -24,7 +26,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     {
         return self.write_key_values_inner(key, values, |k, _, _| k == key);
     }
-    pub(crate) fn write_key_values_inner<V: bytemuck::Pod + PartialEq, F: Ignore<K, { C::PAGE_SIZE }, {C::WRITE_SIZE }>>(
+    pub(crate) fn write_key_values_inner<V: bytemuck::Pod + PartialEq, F: Ignore<K, C, KEY_COUNT>>(
         &mut self, key: K, values: &[V], ignore: F) -> Result<(), NvsError<K, T>>
     {
         let size = size_of::<V>() * values.len();
@@ -63,7 +65,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         return self.write_key_values_force_inner(key, values, |k, _, _| k == key);
     }
     /// Does not check whether the data has changed or not
-    pub(crate) fn write_key_values_force_inner<V: bytemuck::Pod, F: Ignore<K, { C::PAGE_SIZE }, {C::WRITE_SIZE }>>(
+    pub(crate) fn write_key_values_force_inner<V: bytemuck::Pod, F: Ignore<K, C, KEY_COUNT>>(
         &mut self, key: K, values: &[V], ignore: F) -> Result<(), NvsError<K, T>>
     {
         // order of operations:
@@ -156,7 +158,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             Some(mut tv) =>
             {
                 tv.set_size(size);
-                let rec_addr = NvsShadow::<'_, K, T, C, IgnoreTy<K, C>>::write_record(&mut self.partition,
+                let rec_addr = NvsShadow::<'_, K, T, C, IgnoreTy<K, C, KEY_COUNT>, KEY_COUNT>::write_record(&mut self.partition,
                     &self.state, &mut self.page_address.record, &tv, data_addr)?;
                 let record = tv.to_record_new_addr(data_addr);
                 if self.key_map.update_record(record, rec_addr).is_none()
@@ -195,7 +197,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // this is only called to make sure the value prepare_map
             // left in page_address.data is in the partition
             shadow.prepare_data_page(0, false)?;
-            shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.page_address.get_data_page()) })?;
+            shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address::u(shadow.page_address.get_data_page()) })?;
             self.page_address.update_address_record = false;
         }
         
@@ -217,7 +219,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     {
         let mut hash_map = wq.get_back();
         
-        for (key, (bytes, force), ignore) in drain_ignore::<_, _, C>(&mut hash_map)
+        for (key, (bytes, force), ignore) in drain_ignore::<_, _, C, KEY_COUNT>(&mut hash_map)
         {
             if force
             {
@@ -236,13 +238,13 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     }
 }
 
-pub fn drain_ignore<'a, K: NvsKey, V, C: NvsConstants>(hash_map: &'a mut HashMap<K, (V, bool)>)
-    -> impl Iterator<Item = (K, (V, bool), impl Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>)> + 'a
+pub fn drain_ignore<'a, K: NvsKey, V, C: NvsConstants, const KEY_COUNT: usize>(hash_map: &'a mut HashMap<K, (V, bool)>)
+    -> impl Iterator<Item = (K, (V, bool), impl Ignore<K, C, KEY_COUNT>)> + 'a
 {
     let copy = hash_map as *mut HashMap<K, (V, bool)>;
     return hash_map.drain().map(move |(k, v)|
     {
-        (k, v, move |k: K, _: &KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>, clear: bool| unsafe {
+        (k, v, move |k: K, _: &KeyMap<K, C, KEY_COUNT>, clear: bool| unsafe {
             let hm = copy.as_mut().unwrap_unchecked();
             // if we are clearing, turn this into force because there is no longer any old data to check
             hm.get_mut(&k).map(|v|

@@ -3,8 +3,13 @@ use core::ops::Range;
 use alloc::boxed::Box;
 use hashbrown::HashMap;
 
-#[type_const]
-pub const MAX_COLD_COUNT: usize = 5;
+// #[type_const]
+// pub const MAX_COLD_COUNT: usize = 5;
+macro_rules! MAX_COLD_COUNT {
+    () => {
+        5
+    };
+}
 
 pub enum PageData<'a>
 {
@@ -105,10 +110,10 @@ impl PageCache
     // }
     pub fn drop_all_pages(&mut self)
     {
-        let mut colds: [Option<Box<[u8]>>; MAX_COLD_COUNT] = [const { None }; MAX_COLD_COUNT];
+        let mut colds: [Option<Box<[u8]>>; MAX_COLD_COUNT!()] = [const { None }; MAX_COLD_COUNT!()];
         let mut i = 0;
         // only take the first 5 - drop the rest
-        for (_, v) in self.hash_map.drain().take(MAX_COLD_COUNT)
+        for (_, v) in self.hash_map.drain().take(MAX_COLD_COUNT!())
         {
             colds[i] = Some(v.0);
             i += 1;
@@ -150,7 +155,7 @@ impl PageCache
     pub fn return_cold(&mut self, bytes: Box<[u8]>)
     {
         // don't retain allocation
-        if self.cold_count >= MAX_COLD_COUNT { return; }
+        if self.cold_count >= MAX_COLD_COUNT!() { return; }
         
         self.cold_count += 1;
         self.hash_map.insert(-(self.cold_count as i32), (bytes, 0));

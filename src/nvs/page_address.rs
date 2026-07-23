@@ -1,15 +1,15 @@
-use crate::data::Address;
+use crate::{NvsConstants, data::Address};
 
-pub struct PageAddresses<const PAGE_SIZE: u32>
+pub struct PageAddresses<C: NvsConstants>
 {
-    pub data: Address<PAGE_SIZE>,
-    pub record: Address<PAGE_SIZE>,
+    pub data: Address<C>,
+    pub record: Address<C>,
     /// The address of the last written page_address.data record
-    pub address_record: Address<PAGE_SIZE>,
+    pub address_record: Address<C>,
     pub update_address_record: bool
 }
 
-impl<const PAGE_SIZE: u32> PageAddresses<PAGE_SIZE>
+impl<C: NvsConstants> PageAddresses<C>
 {
     #[inline]
     #[must_use]

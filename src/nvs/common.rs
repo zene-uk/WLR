@@ -2,7 +2,8 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{Ignore, NvsConstants, NvsError, NvsKey, cache::{PageCache, PageData}, data::Address, map_err, nvs::NvsShadow, state::State};
 
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_COUNT>, const KEY_COUNT: usize> NvsShadow<'a, K, T, C, F, KEY_COUNT>
+    where [(); C::WRITE_SIZE]:
 {
     pub fn erase_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
@@ -23,7 +24,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
             
             // need to load the rest of the page
             map_err!{self.partition.read(
-                Address::<{ C::PAGE_SIZE }>::from_page_offset(page, range as u32).0,
+                Address::<C>::from_page_offset(page, range as u32).0,
                 &mut bytes[(range as usize)..(C::PAGE_SIZE as usize)])}?;
             *range_ref = C::PAGE_SIZE as u16;
             
@@ -32,7 +33,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
         
         // nothing loaded - so need to read it all
         let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
-        map_err!{self.partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
+        map_err!{self.partition.read(Address::<C>::from_page(page as u32).0, &mut bytes)}?;
         self.cache.cache_page(page, bytes, C::PAGE_SIZE as u16);
         
         return Ok(());
@@ -51,7 +52,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
             
             // need to load more of the data
             map_err!{partition.read(
-                Address::<{ C::PAGE_SIZE }>::from_page_offset(page, range as u32).0,
+                Address::<C>::from_page_offset(page, range as u32).0,
                 &mut bytes[(range as usize)..size])}?;
             *range_ref = size as u16;
             
@@ -60,7 +61,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PA
         
         // nothing loaded
         let mut data = cache.get_or_alloc(size);
-        map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page).0, &mut data[..size])}?;
+        map_err!{partition.read(Address::<C>::from_page(page).0, &mut data[..size])}?;
         
         // we have the capacity for the entire page - add it cache
         if data.len() == C::PAGE_SIZE as usize

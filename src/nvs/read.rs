@@ -3,7 +3,8 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{Nvs, NvsConstants, NvsError, NvsKey, Padding, map_err, round_up};
 
-impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
+impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> Nvs<K, T, C, KEY_COUNT>
+    where [(); C::READ_SIZE]:
 {
     #[must_use]
     pub fn read_key_value_direct<V: bytemuck::Pod>(&mut self, key: K) -> Result<V, NvsError<K, T>>

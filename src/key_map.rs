@@ -6,53 +6,53 @@ use core::cmp::Ordering;
 use alloc::boxed::Box;
 use enum_table::EnumTable;
 
-use crate::{Ignore, NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
+use crate::{Ignore, NvsConstants, NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
 
 #[derive(Debug, Clone, Copy)]
-pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
+pub struct TableValue<K: NvsKey, C: NvsConstants>
 {
-    record_address: Address<PAGE_SIZE>,
-    data_address: Address<PAGE_SIZE>,
+    record_address: Address<C>,
+    data_address: Address<C>,
     data_size: u16,
     key: K
 }
-impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
+impl<K: NvsKey, C: NvsConstants> TableValue<K, C>
 {
     #[inline]
     #[must_use]
-    pub fn from_record(record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Self
+    pub fn from_record(record: Record<C>, ra: Address<C>) -> Self
     {
         return Self { record_address: ra, data_address: record.address, data_size: record.size, key: record.get_key() };
     }
     
     #[inline]
     #[must_use]
-    pub fn get_next_address(&self, ws: u32) -> Address<PAGE_SIZE>
+    pub fn get_next_address(&self) -> Address<C>
     {
         let end = self.data_address.0 + self.data_size as u32;
         // round up to write size
-        return (round_up!(end, ws)).into();
+        return (round_up!(end, C::WRITE_SIZE as u32)).into();
     }
     #[inline]
     #[must_use]
-    pub fn get_address(&self) -> Address<PAGE_SIZE>
+    pub fn get_address(&self) -> Address<C>
     {
         return self.data_address;
     }
     #[inline]
     #[must_use]
-    pub fn get_record(&self) -> Address<PAGE_SIZE>
+    pub fn get_record(&self) -> Address<C>
     {
         return self.record_address;
     }
     #[inline]
-    pub fn set_record(&mut self, addr: Address<PAGE_SIZE>)
+    pub fn set_record(&mut self, addr: Address<C>)
     {
         self.record_address = addr;
     }
     #[inline]
     #[must_use]
-    pub fn to_record_new_addr(&self, new_addr: Address<PAGE_SIZE>) -> Record<PAGE_SIZE>
+    pub fn to_record_new_addr(&self, new_addr: Address<C>) -> Record<C>
     {
         return Record { size: self.data_size, key: self.key.get_key_value(), address: new_addr };
     }
@@ -86,9 +86,9 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
         return self.data_address.get_page() != page && self.get_end_page() == page;
     }
     #[must_use]
-    pub fn get_overflow_size(&self, ws: u32) -> u32
+    pub fn get_overflow_size(&self) -> u32
     {
-        let next_addr = self.get_next_address(ws);
+        let next_addr = self.get_next_address();
         let end_page = next_addr.get_page();
         // ok to do it this way - if next_addr is the start of the next page, we will still return 0
         if self.data_address.get_page() != end_page
@@ -96,51 +96,51 @@ impl<K: NvsKey, const PAGE_SIZE: u32> TableValue<K, PAGE_SIZE>
             return 0;
         }
         
-        return next_addr.0 - Address::<PAGE_SIZE>::from_page(end_page).0;
+        return next_addr.0 - Address::<C>::from_page(end_page).0;
     }
     #[inline]
     #[must_use]
-    pub fn get_data_footprint(&self, ws: u32) -> u32
+    pub fn get_data_footprint(&self) -> u32
     {
         let size = self.data_size as u32;
-        return round_up!(size, ws);
+        return round_up!(size, C::WRITE_SIZE as u32);
     }
 }
 
-pub struct KeyMap<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
+pub struct KeyMap<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize>
 {
     // index by key
-    key_table: Box<EnumTable<K, u16, { K::LEN }>>,
+    key_table: Box<EnumTable<K, u16, KEY_COUNT>>,
     // static linked list ordered by page (address)
-    linked_list: Box<LinkedList<TableValue<K, PAGE_SIZE>, { K::LEN }>>,
+    linked_list: Box<LinkedList<TableValue<K, C>, KEY_COUNT>>,
     // value is index into linked list
     page_table: HashMap<u32, u16>
 }
 
-impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
+impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> KeyMap<K, C, KEY_COUNT>
 {
     pub fn new() -> Self
     {
         return Self {
             key_table: Box::new(EnumTable::new_with_fn(|_| 0xFFFF)),
             linked_list: LinkedList::new(),
-            page_table: HashMap::with_capacity(K::LEN)
+            page_table: HashMap::with_capacity(K::COUNT)
         };
     }
     
-    fn tv_cmp(l: &TableValue<K, PAGE_SIZE>, r: &TableValue<K, PAGE_SIZE>) -> Ordering
+    fn tv_cmp(l: &TableValue<K, C>, r: &TableValue<K, C>) -> Ordering
     {
         return l.data_address.cmp(&r.data_address);
     }
     
     #[must_use]
     /// doesnt update page data
-    pub fn add_value(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> bool
+    pub fn add_value(&mut self, record: Record<C>, ra: Address<C>) -> bool
     {
         return self.add_value_inner(record, ra).is_some();
     }
     #[must_use]
-    fn add_value_inner(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Option<u16>
+    fn add_value_inner(&mut self, record: Record<C>, ra: Address<C>) -> Option<u16>
     {
         let key = record.get_key();
         // cannot have duplicate keys
@@ -161,7 +161,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     
     #[must_use]
-    pub fn get_table_value(&self, key: K) -> Option<TableValue<K, PAGE_SIZE>>
+    pub fn get_table_value(&self, key: K) -> Option<TableValue<K, C>>
     {
         let index = *self.key_table.get(&key);
         if index == 0xFFFF
@@ -173,7 +173,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     /// if new address is on a page with values already - its value will be greater than the ones already there
     /// returns the old record address
-    pub fn update_record(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> Option<Address<PAGE_SIZE>>
+    pub fn update_record(&mut self, record: Record<C>, ra: Address<C>) -> Option<Address<C>>
     {
         let key = record.get_key();
         let index = *self.key_table.get(&key);
@@ -228,7 +228,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     }
     #[must_use]
     /// returns page address aligned to write size
-    pub fn get_page_next_address(&self, page: u32) -> Option<Address<PAGE_SIZE>>
+    pub fn get_page_next_address(&self, page: u32) -> Option<Address<C>>
     {
         let index = match self.page_table.get(&page)
         {
@@ -238,10 +238,10 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         
         let mut node = self.linked_list.get_node(index);
         // something is wrong if the first node is not actually on the page - should not occur
-        let mut next_address = Address(0);
+        let mut next_address = Address::u(0);
         while node.as_ref().is_on_page(page)
         {
-            next_address = node.as_ref().get_next_address(WS as u32);
+            next_address = node.as_ref().get_next_address();
             node = self.linked_list.get_node(node.into_next());
         }
         
@@ -256,7 +256,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     #[must_use]
     #[inline]
     /// can include the previous page items if it has data on that page
-    pub fn iter_page_values<'a>(&'a mut self, page: u32) -> Option<impl Iterator<Item = TableRecord<'a, K, PAGE_SIZE, WS>>>
+    pub fn iter_page_values<'a>(&'a mut self, page: u32) -> Option<impl Iterator<Item = TableRecord<'a, K, C, KEY_COUNT>>>
     {
         let index = match self.page_table.get(&page)
         {
@@ -270,14 +270,14 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     #[must_use]
     #[inline]
     /// Iterates through all records whose record address is on a page
-    pub fn iter_map_page_values<'a>(&'a mut self, page: u32) -> impl Iterator<Item = TableRecord<'a, K, PAGE_SIZE, WS>>
+    pub fn iter_map_page_values<'a>(&'a mut self, page: u32) -> impl Iterator<Item = TableRecord<'a, K, C, KEY_COUNT>>
     {
         return MapPageValueIter::new(self, page);
     }
     #[must_use]
-    pub fn get_available_page_space<F: Ignore<K, PAGE_SIZE, WS>>(&self, page: u32, ignore: F) -> u32
+    pub fn get_available_page_space<F: Ignore<K, C, KEY_COUNT>>(&self, page: u32, ignore: F) -> u32
     {
-        let mut space = PAGE_SIZE;
+        let mut space = C::PAGE_SIZE;
         
         let index = match self.page_table.get(&page)
         {
@@ -299,12 +299,12 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
             {
                 // if we dont start on the current page - then only count the data on this page
                 // (this is an overflow entry)
-                true => tv.get_next_address(WS as u32).get_page_offset(),
+                true => tv.get_next_address().get_page_offset(),
                 false =>
                 {
                     let size = node.as_ref().data_size;
                     // round up to write size
-                    round_up!(size as u32, WS as u32)
+                    round_up!(size as u32, C::WRITE_SIZE as u32)
                 }
             };
             space = space.saturating_sub(size);
@@ -343,7 +343,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
     
     #[must_use]
     /// if new value is on a page with values already - its address will be greater
-    pub fn add_value_page(&mut self, record: Record<PAGE_SIZE>, ra: Address<PAGE_SIZE>) -> bool
+    pub fn add_value_page(&mut self, record: Record<C>, ra: Address<C>) -> bool
     {
         let index = match self.add_value_inner(record, ra)
         {
@@ -355,7 +355,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         
         return true;
     }
-    fn page_table_new(&mut self, da: Address<PAGE_SIZE>, size: u16, index: u16)
+    fn page_table_new(&mut self, da: Address<C>, size: u16, index: u16)
     {
         // add page if it doesnt exist already
         let page = da.get_page();

@@ -5,59 +5,60 @@ mod page_address;
 mod read;
 mod write;
 
-use core::marker::PhantomData;
+use core::{marker::PhantomData, panic};
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 use hashbrown::HashMap;
 
 use crate::{NvsConstants, NvsError, NvsKey, cache::PageCache, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
 
-pub(crate) type IgnoreTy<K, C> = fn(K, &KeyMap<K, { <C as NvsConstants>::PAGE_SIZE }, { <C as NvsConstants>::WRITE_SIZE }>, bool) -> bool;
-pub(crate) trait Ignore<K: NvsKey, const PAGE_SIZE: u32, const WS: usize>: Fn(K, &KeyMap<K, PAGE_SIZE, WS>, bool) -> bool {}
-impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize, T: Fn(K, &KeyMap<K, PAGE_SIZE, WS>, bool) -> bool> Ignore<K, PAGE_SIZE, WS> for T {}
+pub(crate) type IgnoreTy<K, C, const KEY_COUNT: usize> = fn(K, &KeyMap<K, C, KEY_COUNT>, bool) -> bool;
+pub(crate) trait Ignore<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize>: Fn(K, &KeyMap<K, C, KEY_COUNT>, bool) -> bool {}
+impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize, T: Fn(K, &KeyMap<K, C, KEY_COUNT>, bool) -> bool> Ignore<K, C, KEY_COUNT> for T {}
 
-pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
+pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants, const KEY_COUNT: usize>
 {
     partition: T,
-    key_map: KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
+    key_map: KeyMap<K, C, KEY_COUNT>,
     /// the next addresses for data and records
-    page_address: PageAddresses<{ C::PAGE_SIZE }>,
+    page_address: PageAddresses<C>,
     cache: PageCache,
     state: State<T, C>,
     write_queue: Option<HashMap<K, (&'static [u8], bool)>>,
     _phantom: PhantomData<C>
 }
-struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>>
+struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Ignore<K, C, KEY_COUNT>, const KEY_COUNT: usize>
 {
     partition: &'a mut T,
-    key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
+    key_map: &'a mut KeyMap<K, C, KEY_COUNT>,
     /// the next addresses for data and records
-    page_address: &'a mut PageAddresses<{ C::PAGE_SIZE }>,
+    page_address: &'a mut PageAddresses<C>,
     cache: &'a mut PageCache,
     state: &'a mut State<T, C>,
     ignore: F,
     _phantom: PhantomData<C>
 }
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_COUNT>, const KEY_COUNT: usize> NvsShadow<'a, K, T, C, F, KEY_COUNT>
 {
-    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<C>>(), C::WRITE_SIZE);
     
     pub fn new(partition: &'a mut T,
-        key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
-        page_address: &'a mut PageAddresses<{ C::PAGE_SIZE }>,
+        key_map: &'a mut KeyMap<K, C, KEY_COUNT>,
+        page_address: &'a mut PageAddresses<C>,
         cache: &'a mut PageCache,
         state: &'a mut State<T, C>,
-        ignore: F) -> NvsShadow<'a, K, T, C, F>
+        ignore: F) -> NvsShadow<'a, K, T, C, F, KEY_COUNT>
     {
         return NvsShadow { partition, key_map, page_address, cache, state, ignore, _phantom: PhantomData };
     }
 }
 
-impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
+impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> Nvs<K, T, C, KEY_COUNT>
+    where [(); C::WRITE_SIZE]:
 {
-    const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
+    const RECORD_OFFSET: usize = round_up!(size_of::<Record<C>>(), C::WRITE_SIZE);
     
-    fn as_shadow<'a, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
+    fn as_shadow<'a, F: Ignore<K, C, KEY_COUNT>>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F, KEY_COUNT>
     {
         return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.cache, &mut self.state, ignore);
     }
@@ -66,7 +67,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     {
         // constants do not match
         if !(C::PAGE_SIZE as usize).is_multiple_of(T::ERASE_SIZE) || !C::WRITE_SIZE.is_multiple_of(T::WRITE_SIZE) ||
-            !C::READ_SIZE.is_multiple_of(T::READ_SIZE) || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
+            !C::READ_SIZE.is_multiple_of(T::READ_SIZE) || K::COUNT != KEY_COUNT || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
         // invalid constants
             !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
         // The maximum number of records does not leave any empty space in the map
@@ -91,15 +92,15 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let mut key_map = KeyMap::new();
         
         let mut next_data_page = 0;
-        let mut next_record_address = Address(0);
-        let mut address_record = Address(0);
+        let mut next_record_address = Address::u(0);
+        let mut address_record = Address::u(0);
         
         let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(C::PAGE_SIZE as usize).assume_init() };
         // find all records
         for page in record_page..(record_page + C::MAPPING_MAX_RANGE as u32 - 1)
         {
             // read page
-            map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
+            map_err!{partition.read(Address::<C>::from_page(page as u32).0, &mut bytes)}?;
             
             for i in (0..C::PAGE_SIZE as usize).step_by(Self::RECORD_OFFSET)
             {
@@ -125,8 +126,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
                     // record contains data
                     _ =>
                     {
-                        let record: Record<{ C::PAGE_SIZE }> = 
-                            *bytemuck::from_bytes(&bytes[i..(i+size_of::<Record<{ C::PAGE_SIZE }>>())]);
+                        let record: Record<C> = 
+                            *bytemuck::from_bytes(&bytes[i..(i+size_of::<Record<C>>())]);
                         let ra = Address::from_page_offset(page, i as u32);
                         if !key_map.add_value(record, ra)
                         {

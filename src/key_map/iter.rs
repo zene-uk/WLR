@@ -1,22 +1,22 @@
-use crate::{NvsKey, key_map::{KeyMap, TableValue}};
+use crate::{NvsConstants, NvsKey, key_map::{KeyMap, TableValue}};
 
-pub struct TableRecord<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
+pub struct TableRecord<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize>
 {
-    pub key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>,
+    pub key_map: &'a mut KeyMap<K, C, KEY_COUNT>,
     key: K,
     index: u16
 }
-impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> TableRecord<'a, K, PAGE_SIZE, WS>
+impl<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> TableRecord<'a, K, C, KEY_COUNT>
 {
     #[inline]
     #[must_use]
-    pub fn get_current_value(&self) -> &TableValue<K, PAGE_SIZE>
+    pub fn get_current_value(&self) -> &TableValue<K, C>
     {
         return self.key_map.linked_list.get_value(self.index);
     }
     #[inline]
     #[must_use]
-    pub fn get_current_value_mut(&mut self) -> &mut TableValue<K, PAGE_SIZE>
+    pub fn get_current_value_mut(&mut self) -> &mut TableValue<K, C>
     {
         return self.key_map.linked_list.get_value_mut(self.index);
     }
@@ -28,9 +28,9 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> TableRecord<'a, K, PA
     }
 }
 
-pub(super) struct PageValueIter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
+pub(super) struct PageValueIter<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize>
 {
-    key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>,
+    key_map: &'a mut KeyMap<K, C, KEY_COUNT>,
     /// Stores the index of the next node to be read.
     /// Means that we can safely update the value returned by `next`
     /// and it won't disrupt the iterator.
@@ -39,16 +39,16 @@ pub(super) struct PageValueIter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: u
     page: u32
 }
 
-impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> PageValueIter<'a, K, PAGE_SIZE, WS>
+impl<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> PageValueIter<'a, K, C, KEY_COUNT>
 {
-    pub fn new(key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>, start: u16, page: u32) -> Self
+    pub fn new(key_map: &'a mut KeyMap<K, C, KEY_COUNT>, start: u16, page: u32) -> Self
     {
         return Self { key_map, current: start, start, page };
     }
 }
-impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for PageValueIter<'a, K, PAGE_SIZE, WS>
+impl<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> Iterator for PageValueIter<'a, K, C, KEY_COUNT>
 {
-    type Item = TableRecord<'a, K, PAGE_SIZE, WS>;
+    type Item = TableRecord<'a, K, C, KEY_COUNT>;
 
     fn next(&mut self) -> Option<Self::Item>
     {
@@ -82,28 +82,28 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for PageValu
         // is ok as the original data has lifetime 'a and mut here will not be used twice
         let key_map = unsafe 
         {
-            let ptr = self.key_map as *mut KeyMap<K, PAGE_SIZE, WS>;
+            let ptr = self.key_map as *mut KeyMap<K, C, KEY_COUNT>;
             ptr.as_mut::<'a>().unwrap()
         };
         return Some(TableRecord { key_map, key, index });
     }
 }
 
-pub(super) struct MapPageValueIter<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize>
+pub(super) struct MapPageValueIter<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize>
 {
-    key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>,
+    key_map: &'a mut KeyMap<K, C, KEY_COUNT>,
     index: u16,
     page: u32
 }
 
-impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> MapPageValueIter<'a, K, PAGE_SIZE, WS>
+impl<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> MapPageValueIter<'a, K, C, KEY_COUNT>
 {
-    pub fn new(key_map: &'a mut KeyMap<K, PAGE_SIZE, WS>, page: u32) -> Self
+    pub fn new(key_map: &'a mut KeyMap<K, C, KEY_COUNT>, page: u32) -> Self
     {
         return Self { key_map, index: 0, page };
     }
     
-    fn next_inner(&mut self) -> Option<&TableValue<K, PAGE_SIZE>>
+    fn next_inner(&mut self) -> Option<&TableValue<K, C>>
     {
         let index = self.index;
         if self.key_map.linked_list.len() <= self.index as usize
@@ -116,9 +116,9 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> MapPageValueIter<'a, 
         return Some(tv);
     }
 }
-impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for MapPageValueIter<'a, K, PAGE_SIZE, WS>
+impl<'a, K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> Iterator for MapPageValueIter<'a, K, C, KEY_COUNT>
 {
-    type Item = TableRecord<'a, K, PAGE_SIZE, WS>;
+    type Item = TableRecord<'a, K, C, KEY_COUNT>;
 
     fn next(&mut self) -> Option<Self::Item>
     {
@@ -138,7 +138,7 @@ impl<'a, K: NvsKey, const PAGE_SIZE: u32, const WS: usize> Iterator for MapPageV
         // is ok as the original data has lifetime 'a and mut here will not be used twice
         let key_map = unsafe 
         {
-            let ptr = self.key_map as *mut KeyMap<K, PAGE_SIZE, WS>;
+            let ptr = self.key_map as *mut KeyMap<K, C, KEY_COUNT>;
             ptr.as_mut::<'a>().unwrap()
         };
         return Some(TableRecord { key_map, key, index });
