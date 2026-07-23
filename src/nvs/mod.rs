@@ -5,6 +5,7 @@ mod common;
 mod page_address;
 
 use core::{marker::PhantomData, mem::MaybeUninit};
+use alloc::slice;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, cache::{PageCache, PageData}, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
@@ -68,8 +69,14 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         return self.write_key_value_force(key, value);
     }
+    #[inline]
     /// Does not check whether the data has changed or not
     pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
+    {
+        return self.write_key_values_force(key, slice::from_ref(value));
+    }
+    /// Does not check whether the data has changed or not
+    pub fn write_key_values_force<V: bytemuck::Pod>(&mut self, key: K, values: &[V]) -> Result<(), NvsError<K, T>>
     {
         // order of operations:
         // check whether next record is on new page
@@ -108,10 +115,18 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // if page is too full, increment to next page again
         // throw error if we have filled up our allowed space
         
+        let size = size_of::<V>() * values.len();
+        if size == 0 { return Ok(()); }
+        
         // data cannot be bigger than a page
-        if size_of::<V>() > C::PAGE_SIZE as usize
+        if size > C::PAGE_SIZE as usize
         {
-            return Err(NvsError::DataTooBig(size_of::<V>()))
+            return Err(NvsError::DataTooBig(size))
+        }
+        // return error before doing anything
+        if size % C::WRITE_SIZE != 0 && values.len() != 1
+        {
+            return Err(NvsError::BadDataAlignment);
         }
         
         let mut shadow = self.as_shadow(|k, _| k == key);
@@ -121,25 +136,29 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         // actually write the data - this may change page_address.record
         // out is already aligned by WRITE_SIZE
-        if size_of::<V>() % C::WRITE_SIZE == 0
+        if size % C::WRITE_SIZE == 0
         {
-            data_addr = shadow.write_entry_data(PageData::Borrowed(bytemuck::bytes_of(value)), PageData::None, false)?;
+            data_addr = shadow.write_entry_data(PageData::Borrowed(bytemuck::cast_slice(values)), PageData::None, false)?;
         }
         // otherwise reallocate with extra space for alignment
-        else
+        else// if values.len() == 1
         {
             let mut v: Padding<V, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
-            v.0 = *value;
+            v.0 = values[0];
             // round up to WRITE_SIZE
-            let size = round_up!(size_of::<V>(), C::WRITE_SIZE);
+            let size = round_up!(size, C::WRITE_SIZE);
             
             data_addr = shadow.write_entry_data(PageData::Borrowed(v.as_bytes(size)), PageData::None, false)?;
         }
+        // else
+        // {
+        //     return Err(NvsError::BadDataAlignment);
+        // }
         
         // all cached pages are out of date now - the old data exists somewhere else
         shadow.cache.drop_all_pages();
         
-        let size = size_of::<V>() as u16;
+        let size = size as u16;
         // write and update the record
         match shadow.key_map.get_table_value(key)
         {
@@ -199,8 +218,16 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let mut result: V = unsafe { MaybeUninit::zeroed().assume_init() };
         return self.read_key_value(key, &mut result).map(|_| result);
     }
+    #[inline]
     pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> Result<(), NvsError<K, T>>
     {
+        return self.read_key_values(key, slice::from_mut(out));
+    }
+    pub fn read_key_values<V: bytemuck::Pod>(&mut self, key: K, out: &mut [V]) -> Result<(), NvsError<K, T>>
+    {
+        let size = size_of::<V>() * out.len();
+        if size == 0 { return Ok(()); }
+        
         let tv = match self.key_map.get_table_value(key)
         {
             Some(tv) => tv,
@@ -208,28 +235,29 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         };
         
         // tv.get_size() <= C::PAGE_SIZE so not a concern
-        if tv.get_size() as usize != size_of::<V>()// || size_of::<V>() > C::PAGE_SIZE
+        if tv.get_size() as usize != size// || size > C::PAGE_SIZE
         {
             return Err(InconsistentSize(tv.get_size()));
         }
         
         // out is already aligned by READ_SIZE
-        if size_of::<V>() % C::READ_SIZE == 0
+        if size % C::READ_SIZE == 0
         {
-            map_err!{self.partition.read(tv.get_address().0, bytemuck::bytes_of_mut(out))}?;
+            map_err!{self.partition.read(tv.get_address().0, bytemuck::cast_slice_mut(out))}?;
         }
         // otherwise reallocate with extra space for alignment
-        else
+        else if out.len() == 1
         {
             let mut v: Padding<V, { C::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
             // round up to READ_SIZE
-            let size = round_up!(size_of::<V>(), C::READ_SIZE);
+            let size = round_up!(size, C::READ_SIZE);
             
             map_err!{self.partition.read(tv.get_address().0, v.as_bytes_mut(size))}?;
             
-            *out = v.0;
+            out[0] = v.0;
+            return Ok(());
         }
         
-        return Ok(());
+        return Err(NvsError::BadDataAlignment);
     }
 }
