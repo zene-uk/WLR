@@ -65,8 +65,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     fn check_consts(partition: &mut T)
     {
         // constants do not match
-        if (C::PAGE_SIZE as usize).is_multiple_of(T::ERASE_SIZE) || C::WRITE_SIZE.is_multiple_of(T::WRITE_SIZE) ||
-            C::READ_SIZE.is_multiple_of(T::READ_SIZE) || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
+        if !(C::PAGE_SIZE as usize).is_multiple_of(T::ERASE_SIZE) || !C::WRITE_SIZE.is_multiple_of(T::WRITE_SIZE) ||
+            !C::READ_SIZE.is_multiple_of(T::READ_SIZE) || K::COUNT != K::LEN || partition.capacity() != (C::TOTAL_PAGES * C::PAGE_SIZE) as usize ||
         // invalid constants
             !T::ERASE_SIZE.is_power_of_two() || K::COUNT >= 0xFFFF || C::MAP_POST_PADDING <= C::MAPPING_MAX_RANGE ||
         // The maximum number of records does not leave any empty space in the map
