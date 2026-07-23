@@ -11,18 +11,19 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     pub fn prepare_map(&mut self) -> Result<(), NvsError<K, T>>
     {
         // continue writing to current page map
-        if !self.next_record_address.is_page_start() { return Ok(()); }
+        if !self.page_address.record.is_page_start() { return Ok(()); }
         
         // loop around
-        let mut page = self.next_record_address.get_page();
+        let mut page = self.page_address.get_record_page();
         if Self::is_page_overrun(page)
         {
-            *self.next_record_address = Address::from_page(C::STATE_PAGES as u32);
+            self.page_address.record = Address::from_page(C::STATE_PAGES as u32);
             page = C::STATE_PAGES as u32;
         }
         // no longer mutable
         let page = page;
         
+        // use get_new_value so that each prepare_map only deals with one page map shift
         let back_map_page = self.state.get_new_value();
         let move_records = page - back_map_page >= C::MAPPING_MAX_RANGE as u32;
         if move_records
@@ -33,7 +34,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
         
         // make sure our next data address is not writing to a page about to be moved
         // out tmp value change will now make this function true if in the new map padding pages
-        while self.page_in_map_padding(self.next_data_address.get_page())
+        while self.page_in_map_padding(self.page_address.get_data_page())
         {
             self.next_data_page();
         }
@@ -68,7 +69,11 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     /// i.e. `prepare_map` needs to have been called for the first write.
     pub fn move_map_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
-        // TODO: may need to rewrite next data page record as it could be moved without changing (very rare case)
+        // set to rewrite next_data_address record if its on an old page
+        if self.page_address.address_record.get_page() == page
+        {
+            self.page_address.update_address_record = true;
+        }
         
         for mut tr in self.key_map.iter_map_page_values(page)
         {
@@ -78,11 +83,10 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
             let tv = tr.get_current_value_mut();
             // rewrite record to new location
             let rec_addr = NvsShadow::<_, _, C, F>::write_record(self.partition, self.state,
-                self.next_record_address, tv, tv.get_address())?;
+                &mut self.page_address.record, tv, tv.get_address())?;
             tv.set_record(rec_addr);
             
-            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.next_data_address,
-                self.next_record_address, self.state, &self.ignore);
+            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address, self.state, &self.ignore);
             // call in preparation for the next record to be moved
             shadow_copy.prepare_map()?;
         }
@@ -126,6 +130,6 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     {
         // sets the old record address to 0 and the unused page to 0 - so that it wont try to clear the old record as it does not exist
         let tv = TableValue::from_record(record, Address(0));
-        return Self::write_record(self.partition, self.state, self.next_record_address, &tv, record.address);
+        return Self::write_record(self.partition, self.state, &mut self.page_address.record, &tv, record.address);
     }
 }

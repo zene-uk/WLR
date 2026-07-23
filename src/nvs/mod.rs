@@ -2,18 +2,19 @@ pub mod init;
 mod record_paging;
 mod data_paging;
 mod common;
+mod page_address;
 
 use core::{marker::PhantomData, mem::MaybeUninit};
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, map_err, round_up, state::State};
+use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
 {
     partition: T,
     key_map: KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
-    next_data_address: Address<{ C::PAGE_SIZE }>,
-    next_record_address: Address<{ C::PAGE_SIZE }>,
+    /// the next addresses for data and records
+    page_address: PageAddresses<{ C::PAGE_SIZE }>,
     state: State<T, C>,
     _phantom: PhantomData<C>
 }
@@ -21,8 +22,8 @@ struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Fn(K) -> bool>
 {
     partition: &'a mut T,
     key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
-    next_data_address: &'a mut Address<{ C::PAGE_SIZE }>,
-    next_record_address: &'a mut Address<{ C::PAGE_SIZE }>,
+    /// the next addresses for data and records
+    page_address: &'a mut PageAddresses<{ C::PAGE_SIZE }>,
     state: &'a mut State<T, C>,
     ignore: F,
     _phantom: PhantomData<C>
@@ -33,12 +34,11 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Fn(K) -> bool> Nv
     
     pub fn new(partition: &'a mut T,
         key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
-        next_data_address: &'a mut Address<{ C::PAGE_SIZE }>,
-        next_record_address: &'a mut Address<{ C::PAGE_SIZE }>,
+        page_address: &'a mut PageAddresses<{ C::PAGE_SIZE }>,
         state: &'a mut State<T, C>,
         ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
-        return NvsShadow { partition, key_map, next_data_address, next_record_address, state, ignore, _phantom: PhantomData };
+        return NvsShadow { partition, key_map, page_address, state, ignore, _phantom: PhantomData };
     }
 }
 
@@ -46,8 +46,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
     fn as_shadow<'a, F: Fn(K) -> bool>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
-        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.next_data_address,
-            &mut self.next_record_address, &mut self.state, ignore);
+        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.state, ignore);
     }
     
     pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
@@ -138,7 +137,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             {
                 tv.set_size(size);
                 let rec_addr = NvsShadow::<'_, K, T, C, fn(K) -> bool>::write_record(&mut self.partition,
-                    &self.state, &mut self.next_record_address, &tv, data_addr)?;
+                    &self.state, &mut self.page_address.record, &tv, data_addr)?;
                 let record = tv.to_record_new_addr(data_addr);
                 if self.key_map.update_record(record, rec_addr).is_none()
                 {
@@ -167,14 +166,18 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     #[inline]
     pub fn flush(&mut self) -> Result<(), NvsError<K, T>>
     {
-        // write current data page
-        let mut shadow = self.as_shadow(|_| false);
-        // retain this order
-        shadow.prepare_map()?;
-        // this is only called to make sure the value prepare_map
-        // left in next_data_address is in the partition
-        shadow.prepare_data_page(0)?;
-        shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.next_data_address.get_page()) })?;
+        // rewrite current data page
+        if self.page_address.update_address_record
+        {
+            let mut shadow = self.as_shadow(|_| false);
+            // retain this order
+            shadow.prepare_map()?;
+            // this is only called to make sure the value prepare_map
+            // left in next_data_address is in the partition
+            shadow.prepare_data_page(0)?;
+            shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.page_address.get_data_page()) })?;
+            self.page_address.update_address_record = false;
+        }
         
         // write state value
         return map_err!{self.state.sync_value(&mut self.partition)};
