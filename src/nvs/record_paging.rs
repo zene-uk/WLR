@@ -44,7 +44,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         // need to move entries - do this before bringing back records to the front
         if !self.key_map.is_page_free(page)
         {
-            // by setting erase to true, next_record_address is safe to write to when record calls are made
+            // by setting erase to true, page_address.record is safe to write to when record calls are made
             self.move_data_page(page, true, false)?;
         }
         // dont recalculate move_records as if they needed moving, another prepare_map call would have dont it
@@ -55,7 +55,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             self.erase_page(page)?;
         }
         
-        // by this point it is safe to write to next_record_address
+        // by this point it is safe to write to page_address.record
         if move_records
         {
             // move the unchanged out of range records
@@ -65,11 +65,11 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         return Ok(());
     }
     
-    /// It must be ok to write to next_record_address and update its value,
+    /// It must be ok to write to `page_address.record` and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     pub fn move_map_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
-        // set to rewrite next_data_address record if its on an old page
+        // set to rewrite page_address.data record if its on an old page
         if self.page_address.address_record.get_page() == page
         {
             self.page_address.update_address_record = true;
@@ -96,7 +96,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         return Ok(());
     }
     
-    /// It must be ok to write to next_record_address and update its value,
+    /// It must be ok to write to `page_address.record` and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Only writes the record data, does not update the key_map
@@ -123,7 +123,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         *nra += Self::RECORD_OFFSET as u32;
         return Ok(addr);
     }
-    /// It must be ok to write to next_record_address and update its value,
+    /// It must be ok to write to `page_address.record` and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Only writes the records data, does not update the key_map

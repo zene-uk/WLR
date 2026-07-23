@@ -112,11 +112,11 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         }
         
         let mut shadow = self.as_shadow(|k, _| k == key);
-        // prepare next_record_address
+        // prepare page_address.record
         shadow.prepare_map()?;
         let data_addr;
         
-        // actually write the data - this may change next_record_address
+        // actually write the data - this may change page_address.record
         // out is already aligned by WRITE_SIZE
         if size_of::<V>() % C::WRITE_SIZE == 0
         {
@@ -177,7 +177,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // retain this order
             shadow.prepare_map()?;
             // this is only called to make sure the value prepare_map
-            // left in next_data_address is in the partition
+            // left in page_address.data is in the partition
             shadow.prepare_data_page(0, false)?;
             shadow.write_new_record(Record { size: 0xFFFF, key: 0x0000, address: Address(shadow.page_address.get_data_page()) })?;
             self.page_address.update_address_record = false;

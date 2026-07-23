@@ -32,7 +32,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         self.page_address.update_address_record = true;
     }
     
-    /// It must be ok to write to next_record_address and update its value,
+    /// It must be ok to write to `page_address.record` and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Prepares the next data address considering the size of the data about ot be written
@@ -102,7 +102,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             
             // TODO: case where this page contains some overflow data
             
-            // rewrite page - next_data_address is already at the start of the page
+            // rewrite page - page_address.data is already at the start of the page
             // moves the page to itself
             if let Err(err) = self.move_data_page(page, true, true)
             {
@@ -147,7 +147,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             return PreparePage::Repeat;
         }
         
-        // leave next_data_address as it is, but the next address is going to be after the next pages rewritten data
+        // leave page_address.data as it is, but the next address is going to be after the next pages rewritten data
         let nda = self.page_address.data;
         // skip over what were going to write
         self.page_address.data += data_size;
@@ -163,7 +163,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         // our current page has been overrun by the map
         if Self::page_in_range(page, last_nra_page, new_nra_page)
         {
-            // check the new next_data_address
+            // check the new page_address.data
             return PreparePage::Repeat;
         }
         
@@ -173,7 +173,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         return PreparePage::NextAddress(next_nda);
     }
     
-    /// It must be ok to write to next_record_address and update its value,
+    /// It must be ok to write to `page_address.record` and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// This function will also call `prepare_map` ready for the next record write
@@ -210,7 +210,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             // ignore overflow entries whose data ends on this page (not starts)
             if tv.is_overflow_on(page)
             {
-                // if we are writing to this page and next_data_address is at the start
+                // if we are writing to this page and page_address.data is at the start
                 if page_rewrite && from_prepare && self.page_address.data.is_page_start()
                 {
                     // write the overflow from the previous page back to where it was
@@ -261,7 +261,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
     }
     
     
-    /// It must be ok to write to next_record_address and update its value,
+    /// It must be ok to write to `page_address.record` and update its value,
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// `data1` and `data2` both must be aligned to `WRITE_SIZE` individually
@@ -272,7 +272,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         let next_addr = self.prepare_data_page(size as u32, from_prepare)?;
         
         let addr = self.page_address.data;
-        // can safely write to next_data_address
+        // can safely write to page_address.data
         if d1_len > 0
         {
             map_err!{self.partition.write(addr.0, data1)}?;

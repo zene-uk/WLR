@@ -4,7 +4,7 @@ pub struct PageAddresses<const PAGE_SIZE: u32>
 {
     pub data: Address<PAGE_SIZE>,
     pub record: Address<PAGE_SIZE>,
-    /// The address of the last written next_data_address record
+    /// The address of the last written page_address.data record
     pub address_record: Address<PAGE_SIZE>,
     pub update_address_record: bool
 }
