@@ -51,6 +51,7 @@ impl<T: NorFlash, C: NvsConstants + 'static> State<T, C>
         buffer.0 = value;
         partition.write(0, buffer.as_bytes(Self::OFFSET))?;
         
+        // address is the current location, next one will be calculated when needed
         return Ok(Self { address: Address(0), value, tmp_value: value, synced: true, _phatom: PhantomData });
     }
     
@@ -69,7 +70,7 @@ impl<T: NorFlash, C: NvsConstants + 'static> State<T, C>
             new_addr = Address::from_page_offset(0, 0);
         }
         // change in page - C::PAGE_SIZE should be multiple of offset
-        if self.address.is_page_start()
+        if new_addr.is_page_start()
         {
             // erase new page ready for data
             partition.erase(new_addr.0, new_addr.0 + C::PAGE_SIZE)?;

@@ -108,7 +108,7 @@ impl PageCache
         let mut colds: [Option<Box<[u8]>>; MAX_COLD_COUNT] = [const { None }; MAX_COLD_COUNT];
         let mut i = 0;
         // only take the first 5 - drop the rest
-        for (_, v) in self.hash_map.drain().take(5)
+        for (_, v) in self.hash_map.drain().take(MAX_COLD_COUNT)
         {
             colds[i] = Some(v.0);
             i += 1;
@@ -118,7 +118,9 @@ impl PageCache
         {
             if let Some(d) = data
             {
-                self.hash_map.insert((i + 1) as i32, (d, 0));
+                let index = (i + 1) as i32;
+                // always use -(self.cold_count + 1) for cold keys
+                self.hash_map.insert(-index, (d, 0));
             }
         }
         self.cold_count = 0;
@@ -144,5 +146,13 @@ impl PageCache
         self.cold_count -= 1;
         // key was just found - so it won't return none
         return self.hash_map.remove(&key).unwrap().0;
+    }
+    pub fn return_cold(&mut self, bytes: Box<[u8]>)
+    {
+        // don't retain allocation
+        if self.cold_count >= MAX_COLD_COUNT { return; }
+        
+        self.cold_count += 1;
+        self.hash_map.insert(-(self.cold_count as i32), (bytes, 0));
     }
 }

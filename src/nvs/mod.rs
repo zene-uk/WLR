@@ -69,6 +69,32 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         
         return self.write_key_value_force(key, value);
     }
+    pub fn write_key_values<V: bytemuck::Pod>(&mut self, key: K, values: &[V]) -> Result<(), NvsError<K, T>>
+        where V: PartialEq,
+    {
+        let size = size_of::<V>() * values.len();
+        // data cannot be bigger than a page
+        if size > C::PAGE_SIZE as usize
+        {
+            return Err(NvsError::DataTooBig(size))
+        }
+        // use cache as temporary data - it won't be in use at this time
+        // data can't be bigger than page size
+        let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
+        // round up to READ_SIZE
+        let align_size = round_up!(size, C::READ_SIZE);
+        
+        self.read_key_values_inner(key, &mut bytes[..align_size], false)?;
+        // do nothing as data hasn't changed
+        if values == bytemuck::cast_slice(&bytes[..size])
+        {
+            self.cache.return_cold(bytes);
+            return Ok(());
+        }
+        
+        self.cache.return_cold(bytes);
+        return self.write_key_values_force(key, values);
+    }
     #[inline]
     /// Does not check whether the data has changed or not
     pub fn write_key_value_force<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
@@ -123,11 +149,6 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         {
             return Err(NvsError::DataTooBig(size))
         }
-        // return error before doing anything
-        if size % C::WRITE_SIZE != 0 && values.len() != 1
-        {
-            return Err(NvsError::BadDataAlignment);
-        }
         
         let mut shadow = self.as_shadow(|k, _| k == key);
         // prepare page_address.record
@@ -141,7 +162,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             data_addr = shadow.write_entry_data(PageData::Borrowed(bytemuck::cast_slice(values)), PageData::None, false)?;
         }
         // otherwise reallocate with extra space for alignment
-        else// if values.len() == 1
+        else if values.len() == 1 // more efficient method for only one
         {
             let mut v: Padding<V, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
             v.0 = values[0];
@@ -150,10 +171,18 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             
             data_addr = shadow.write_entry_data(PageData::Borrowed(v.as_bytes(size)), PageData::None, false)?;
         }
-        // else
-        // {
-        //     return Err(NvsError::BadDataAlignment);
-        // }
+        else
+        {
+            // use cache as temporary data - it may be needed here but oh well (quite unlikely to cause much overhead)
+            // data can't be bigger than page size
+            let mut bytes = shadow.cache.get_or_alloc(C::PAGE_SIZE as usize);
+            bytes.copy_from_slice(bytemuck::cast_slice(values));
+            // round up to WRITE_SIZE
+            let align_size = round_up!(size, C::WRITE_SIZE);
+            
+            data_addr = shadow.write_entry_data(PageData::Borrowed(&bytes[..align_size]), PageData::None, false)?;
+            shadow.cache.return_cold(bytes);
+        }
         
         // all cached pages are out of date now - the old data exists somewhere else
         shadow.cache.drop_all_pages();
@@ -221,9 +250,14 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     #[inline]
     pub fn read_key_value<V: bytemuck::Pod>(&mut self, key: K, out: &mut V) -> Result<(), NvsError<K, T>>
     {
-        return self.read_key_values(key, slice::from_mut(out));
+        return self.read_key_values_inner(key, slice::from_mut(out), true);
     }
+    #[inline]
     pub fn read_key_values<V: bytemuck::Pod>(&mut self, key: K, out: &mut [V]) -> Result<(), NvsError<K, T>>
+    {
+        return self.read_key_values_inner(key, out, true);
+    }
+    pub fn read_key_values_inner<V: bytemuck::Pod>(&mut self, key: K, out: &mut [V], size_check: bool) -> Result<(), NvsError<K, T>>
     {
         let size = size_of::<V>() * out.len();
         if size == 0 { return Ok(()); }
@@ -234,8 +268,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             None => return Err(NvsError::MissingKey(key))
         };
         
-        // tv.get_size() <= C::PAGE_SIZE so not a concern
-        if tv.get_size() as usize != size// || size > C::PAGE_SIZE
+        // tv.get_size() <= C::PAGE_SIZE so too big is not a concern
+        if size_check && tv.get_size() as usize != size// || size > C::PAGE_SIZE
         {
             return Err(InconsistentSize(tv.get_size()));
         }
@@ -246,7 +280,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             map_err!{self.partition.read(tv.get_address().0, bytemuck::cast_slice_mut(out))}?;
         }
         // otherwise reallocate with extra space for alignment
-        else if out.len() == 1
+        else if out.len() == 1 // more efficient method for only one
         {
             let mut v: Padding<V, { C::READ_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
             // round up to READ_SIZE
@@ -257,7 +291,20 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             out[0] = v.0;
             return Ok(());
         }
+        else
+        {
+            // use cache as temporary data - it won't be in use at this time
+            // data can't be bigger than page size
+            let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
+            // round up to READ_SIZE
+            let align_size = round_up!(size, C::READ_SIZE);
+            
+            map_err!{self.partition.read(tv.get_address().0, &mut bytes[..align_size])}?;
+            // copy to output
+            bytemuck::cast_slice_mut(out).copy_from_slice(&bytes[..size]);
+            self.cache.return_cold(bytes);
+        }
         
-        return Err(NvsError::BadDataAlignment);
+        return Ok(());
     }
 }
