@@ -6,7 +6,7 @@ use core::cmp::Ordering;
 use alloc::boxed::Box;
 use enum_table::EnumTable;
 
-use crate::{NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
+use crate::{Ignore, NvsKey, data::{Address, Record}, linked_list::LinkedList, round_up};
 
 #[derive(Debug, Clone, Copy)]
 pub struct TableValue<K: NvsKey, const PAGE_SIZE: u32>
@@ -275,7 +275,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         return MapPageValueIter::new(self, page);
     }
     #[must_use]
-    pub fn get_available_page_space(&self, page: u32) -> u32
+    pub fn get_available_page_space<F: Ignore<K, PAGE_SIZE, WS>>(&self, page: u32, ignore: F) -> u32
     {
         let mut space = PAGE_SIZE;
         
@@ -292,6 +292,8 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         while node.as_ref().is_on_page(page)
         {
             let tv = node.as_ref();
+            // ignore data that is about to be moved
+            if ignore(tv.key, self) { continue; }
             
             let size = match tv.data_address.get_page() != page
             {

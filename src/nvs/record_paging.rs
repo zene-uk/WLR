@@ -5,7 +5,7 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{Ignore, NvsConstants, NvsError, NvsKey, Padding, data::{Address, Record}, key_map::TableValue, map_err, nvs::NvsShadow, state::State};
 
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>> NvsShadow<'a, K, T, C, F>
 {
     /// Ensures that the current record location is safe to write to
     pub fn prepare_map(&mut self) -> Result<(), NvsError<K, T>>

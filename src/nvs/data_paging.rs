@@ -11,7 +11,7 @@ enum PreparePage<K: NvsKey, T: NorFlash, const PAGE_SIZE: u32>
     Fail(NvsError<K, T>)
 }
 
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>> NvsShadow<'a, K, T, C, F>
 {
     pub fn next_data_page(&mut self)
     {
@@ -89,7 +89,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             
             // on a new page
             self.page_address.update_address_record = true;
-            let potential_space = self.key_map.get_available_page_space(page);
+            let potential_space = self.key_map.get_available_page_space(page, &self.ignore);
             
             let min_space = data_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32;
             // should not use this page - next page and prepare again
@@ -135,7 +135,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         
         // make sure next page is ok to write to
         let overflow_size = data_size - space;
-        let potential_space = self.key_map.get_available_page_space(page + 1);
+        let potential_space = self.key_map.get_available_page_space(page + 1, &self.ignore);
         
         // should not use the page - so no overflow allowed - next page and prepare again
         if potential_space < overflow_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32
@@ -176,14 +176,14 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
     /// This function will also call `prepare_map` ready for the next record write
     pub fn move_data_page(&mut self, page: u32, erase: bool, from_prepare: bool) -> Result<(), NvsError<K, T>>
     {
-        // need to always reallocate due to potential recursion
+        // make sure this instances page data is in cache
         self.load_page(page)?;
         if erase
         {
-            // incase we need to prepare for new records
+            // incase we need to prepare for new records or data
             self.erase_page(page)?;
         }
-        
+        // when reorganising a page to fit more on in prepare_data_page
         let page_rewrite = self.page_address.get_data_page() == page;
         
         let iter = match self.key_map.iter_page_values(page)
@@ -204,6 +204,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             if tv.is_overflow_on(page)
             {
                 // if we are writing to this page and page_address.data is at the start
+                // then we want to retain the overflowed data - the other half is still in place
                 if page_rewrite && from_prepare && self.page_address.data.is_page_start()
                 {
                     // write the overflow from the previous page back to where it was
@@ -226,6 +227,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             {
                 let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address,
                 // only add this current entry to the ignore
+                // - cannot check by page as previous iterations are now written to this page
                     self.cache, self.state, |k, km| k == key || (self.ignore)(k, km));
                 addr = shadow_copy.write_entry_data(data, extra_data, from_prepare)?;
             }
@@ -233,11 +235,12 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             {
                 let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address,
                 // add the entries on this page to the ignore - only do this if we are writing to a new page
-                // (because the entries on this page are a mix of ones that exist and ones that dont)
+                // (because all records listed to this page are the ones about to be moved)
                     self.cache, self.state, |k, km| (self.ignore)(k, km) || km.is_key_on_page(k, page));
                 addr = shadow_copy.write_entry_data(data, extra_data, from_prepare)?;
             }
             
+            // actually write record
             let tv = tr.get_current_value();
             let rec_addr = NvsShadow::<_, _, C, F>::write_record(self.partition, self.state, &mut self.page_address.record, tv, addr)?;
             let record = tv.to_record_new_addr(addr);

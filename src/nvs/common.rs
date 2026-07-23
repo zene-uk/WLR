@@ -2,7 +2,7 @@ use embedded_storage::nor_flash::NorFlash;
 
 use crate::{Ignore, NvsConstants, NvsError, NvsKey, cache::{PageCache, PageData}, data::Address, map_err, nvs::NvsShadow, state::State};
 
-impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
+impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>> NvsShadow<'a, K, T, C, F>
 {
     pub fn erase_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
