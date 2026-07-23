@@ -1,4 +1,4 @@
-pub mod init;
+mod init;
 mod record_paging;
 mod data_paging;
 mod common;
@@ -7,10 +7,10 @@ mod page_address;
 use core::{marker::PhantomData, mem::MaybeUninit};
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
+use crate::{NvsConstants, NvsError::{self, InconsistentSize}, NvsKey, Padding, cache::{PageCache, PageData}, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
 
-pub type IgnoreTy<K, C> = fn(K, &KeyMap<K, { <C as NvsConstants>::PAGE_SIZE }, { <C as NvsConstants>::WRITE_SIZE }>) -> bool;
-pub trait Ignore<K: NvsKey, C: NvsConstants>: Fn(K, &KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>) -> bool {}
+pub(crate) type IgnoreTy<K, C> = fn(K, &KeyMap<K, { <C as NvsConstants>::PAGE_SIZE }, { <C as NvsConstants>::WRITE_SIZE }>) -> bool;
+pub(crate) trait Ignore<K: NvsKey, C: NvsConstants>: Fn(K, &KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>) -> bool {}
 impl<K: NvsKey, C: NvsConstants, T: Fn(K, &KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>) -> bool> Ignore<K, C> for T {}
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
@@ -19,6 +19,7 @@ pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants>
     key_map: KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
     /// the next addresses for data and records
     page_address: PageAddresses<{ C::PAGE_SIZE }>,
+    cache: PageCache,
     state: State<T, C>,
     _phantom: PhantomData<C>
 }
@@ -28,6 +29,7 @@ struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Ignore<K, C>>
     key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
     /// the next addresses for data and records
     page_address: &'a mut PageAddresses<{ C::PAGE_SIZE }>,
+    cache: &'a mut PageCache,
     state: &'a mut State<T, C>,
     ignore: F,
     _phantom: PhantomData<C>
@@ -39,10 +41,11 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
     pub fn new(partition: &'a mut T,
         key_map: &'a mut KeyMap<K, { C::PAGE_SIZE }, { C::WRITE_SIZE }>,
         page_address: &'a mut PageAddresses<{ C::PAGE_SIZE }>,
+        cache: &'a mut PageCache,
         state: &'a mut State<T, C>,
         ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
-        return NvsShadow { partition, key_map, page_address, state, ignore, _phantom: PhantomData };
+        return NvsShadow { partition, key_map, page_address, cache, state, ignore, _phantom: PhantomData };
     }
 }
 
@@ -50,7 +53,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
     fn as_shadow<'a, F: Ignore<K, C>>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F>
     {
-        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.state, ignore);
+        return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.cache, &mut self.state, ignore);
     }
     
     pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
@@ -120,7 +123,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // out is already aligned by WRITE_SIZE
         if size_of::<V>() % C::WRITE_SIZE == 0
         {
-            data_addr = shadow.write_entry_data(bytemuck::bytes_of(value), &[], false)?;
+            data_addr = shadow.write_entry_data(PageData::Borrowed(bytemuck::bytes_of(value)), PageData::None, false)?;
         }
         // otherwise reallocate with extra space for alignment
         else
@@ -130,8 +133,11 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
             // round up to WRITE_SIZE
             let size = round_up!(size_of::<V>(), C::WRITE_SIZE);
             
-            data_addr = shadow.write_entry_data(v.as_bytes(size), &[], false)?;
+            data_addr = shadow.write_entry_data(PageData::Borrowed(v.as_bytes(size)), PageData::None, false)?;
         }
+        
+        // all cached pages are out of date now - the old data exists somewhere else
+        shadow.cache.drop_all_pages();
         
         let size = size_of::<V>() as u16;
         // write and update the record

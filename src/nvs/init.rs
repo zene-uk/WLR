@@ -3,14 +3,13 @@ use core::{marker::PhantomData, panic};
 use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{Nvs, NvsConstants, NvsError, NvsKey, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
+use crate::{Nvs, NvsConstants, NvsError, NvsKey, cache::PageCache, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
 {
     const RECORD_OFFSET: usize = round_up!(size_of::<Record<{ C::PAGE_SIZE }>>(), C::WRITE_SIZE);
     
-    #[must_use]
-    pub fn init(mut partition: T) -> Result<Self, NvsError<K, T>>
+    fn check_consts(partition: &mut T)
     {
         // constants do not match
         if (C::PAGE_SIZE as usize).is_multiple_of(T::ERASE_SIZE) || C::WRITE_SIZE.is_multiple_of(T::WRITE_SIZE) ||
@@ -20,10 +19,18 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         // The maximum number of records does not leave any empty space in the map
             K::COUNT >= 1 + (C::MAPPING_MAX_RANGE as u32 * C::PAGE_SIZE) as usize / Self::RECORD_OFFSET ||
         // too many pages - not likely to ever be needed and helps reduce the cache memory footprint
-            C::TOTAL_PAGES >= i32::MAX as u32
+            C::TOTAL_PAGES >= i32::MAX as u32 ||
+        // page size too big - also helps reduce cache memory footprint
+            C::PAGE_SIZE >= u16::MAX as u32
         {
             panic!();
         }
+    }
+    
+    #[must_use]
+    pub fn init(mut partition: T) -> Result<Self, NvsError<K, T>>
+    {
+        Self::check_consts(&mut partition);
         
         let state = State::init(&mut partition)?;
         let record_page = state.get_old_value();
@@ -92,8 +99,12 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         };
         
         let page_address = PageAddresses { data: next_data_address, record: next_record_address, address_record, update_address_record: false };
+        // add our allocation to the cold count
+        let mut cache = PageCache::new();
+        cache.cache_page(1, bytes, C::PAGE_SIZE as u16);
+        cache.drop_all_pages();
         
-        let mut res = Self { partition, key_map, page_address, state, _phantom: PhantomData };
+        let mut res = Self { partition, key_map, page_address, cache, state, _phantom: PhantomData };
         // get next page
         if run_next_page
         {
@@ -105,6 +116,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
     #[must_use]
     pub fn new(mut partition: T) -> Result<Self, NvsError<K, T>>
     {
+        Self::check_consts(&mut partition);
+        
         let mut key_map = KeyMap::new();
         key_map.initialise();
         
@@ -122,6 +135,6 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static> Nvs<K, T, C>
         let page_address = PageAddresses { data: next_data_address, record: next_record_address, address_record, update_address_record: true };
         
         let state = map_err!{State::new(&mut partition, 0)}?;
-        return Ok(Self { partition, key_map, page_address, state, _phantom: PhantomData })
+        return Ok(Self { partition, key_map, page_address, cache: PageCache::new(), state, _phantom: PhantomData })
     }
 }

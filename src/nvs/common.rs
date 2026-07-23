@@ -1,7 +1,6 @@
-use alloc::boxed::Box;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{Ignore, NvsConstants, NvsError, NvsKey, data::Address, map_err, nvs::NvsShadow, state::State};
+use crate::{Ignore, NvsConstants, NvsError, NvsKey, cache::{PageCache, PageData}, data::Address, map_err, nvs::NvsShadow, state::State};
 
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> NvsShadow<'a, K, T, C, F>
 {
@@ -11,13 +10,67 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         return map_err!{self.partition.erase(offset, offset + C::PAGE_SIZE)};
     }
     #[must_use]
-    pub fn read_page(&mut self, page: u32) -> Result<Box<[u8]>, NvsError<K, T>>
+    pub fn load_page(&mut self, page: u32) -> Result<(), NvsError<K, T>>
     {
-        let mut bytes: Box<[u8]> = unsafe { Box::new_zeroed_slice(C::PAGE_SIZE as usize).assume_init() };
+        if let Some((bytes, range_ref)) = self.cache.get_page(page)
+        {
+            let range = *range_ref;
+            // page already loaded
+            if range as u32 == C::PAGE_SIZE
+            {
+                return Ok(());
+            }
+            
+            // need to load the rest of the page
+            map_err!{self.partition.read(
+                Address::<{ C::PAGE_SIZE }>::from_page_offset(page, range as u32).0,
+                &mut bytes[(range as usize)..(C::PAGE_SIZE as usize)])}?;
+            *range_ref = C::PAGE_SIZE as u16;
+            
+            return Ok(());
+        }
         
+        // nothing loaded - so need to read it all
+        let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
         map_err!{self.partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page as u32).0, &mut bytes)}?;
+        self.cache.cache_page(page, bytes, C::PAGE_SIZE as u16);
         
-        return Ok(bytes);
+        return Ok(());
+    }
+    #[must_use]
+    pub fn get_overflow_data<'b>(partition: &mut T, cache: &mut PageCache, page: u32, size: usize) -> Result<PageData<'b>, NvsError<K, T>>
+    {
+        // just refernece page
+        if let Some((bytes, range_ref)) =  cache.get_page(page)
+        {
+            let range = *range_ref;
+            if range as usize >= size
+            {
+                return Ok(PageData::Cache(page, 0..(size as u16)));
+            }
+            
+            // need to load more of the data
+            map_err!{partition.read(
+                Address::<{ C::PAGE_SIZE }>::from_page_offset(page, range as u32).0,
+                &mut bytes[(range as usize)..size])}?;
+            *range_ref = size as u16;
+            
+            return Ok(PageData::Cache(page, 0..(size as u16)));
+        }
+        
+        // nothing loaded
+        let mut data = cache.get_or_alloc(size);
+        map_err!{partition.read(Address::<{ C::PAGE_SIZE }>::from_page(page).0, &mut data[..size])}?;
+        
+        // we have the capacity for the entire page - add it cache
+        if data.len() == C::PAGE_SIZE as usize
+        {
+            cache.cache_page(page, data, size as u16);
+            return Ok(PageData::Cache(page, 0..(size as u16)));
+        }
+        
+        // only allocated for the data we needed, so return it as owed
+        return Ok(PageData::Owed(data));
     }
     
     #[must_use]
@@ -69,8 +122,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
         return page as u32;
     }
     
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn is_in_old_map_page(state: &State<T, C>, page: u32) -> bool
     {
         let new_first_page = state.get_new_value();

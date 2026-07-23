@@ -4,6 +4,7 @@ use alloc::boxed::Box;
 
 struct InnerNode<T>
 {
+    /// need previous so that we can update values (remove then readd them)
     previous: u16,
     pub value: T,
     next: u16
@@ -20,12 +21,12 @@ impl<'a, T> Node<'a, T>
     {
         return self.inner.next;
     }
-    #[must_use]
-    #[inline]
-    pub fn into_previous(self) -> u16
-    {
-        return self.inner.previous;
-    }
+    // #[must_use]
+    // #[inline]
+    // pub fn into_previous(self) -> u16
+    // {
+    //     return self.inner.previous;
+    // }
 }
 impl<'a, T> AsRef<T> for Node<'a, T>
 {
@@ -35,33 +36,33 @@ impl<'a, T> AsRef<T> for Node<'a, T>
         return &self.inner.value;
     }
 }
-pub struct NodeMut<'a, T>
-{
-    inner: &'a mut InnerNode<T>
-}
-impl<'a, T> AsMut<T> for NodeMut<'a, T>
-{
-    #[inline]
-    fn as_mut(&mut self) -> &mut T
-    {
-        return &mut self.inner.value;
-    }
-}
-impl<'a, T> NodeMut<'a, T>
-{
-    #[must_use]
-    #[inline]
-    pub fn into_next(self) -> u16
-    {
-        return self.inner.next;
-    }
-    #[must_use]
-    #[inline]
-    pub fn into_previous(self) -> u16
-    {
-        return self.inner.previous;
-    }
-}
+// pub struct NodeMut<'a, T>
+// {
+//     inner: &'a mut InnerNode<T>
+// }
+// impl<'a, T> AsMut<T> for NodeMut<'a, T>
+// {
+//     #[inline]
+//     fn as_mut(&mut self) -> &mut T
+//     {
+//         return &mut self.inner.value;
+//     }
+// }
+// impl<'a, T> NodeMut<'a, T>
+// {
+//     #[must_use]
+//     #[inline]
+//     pub fn into_next(self) -> u16
+//     {
+//         return self.inner.next;
+//     }
+//     #[must_use]
+//     #[inline]
+//     pub fn into_previous(self) -> u16
+//     {
+//         return self.inner.previous;
+//     }
+// }
 
 /// A looping Linked List stored in a fix data block
 pub struct LinkedList<T: Copy, const N: usize>
@@ -91,15 +92,15 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         return self.len;
     }
     
-    pub fn add_value(&mut self, value: T) -> Option<u16>
-    {
-        if self.len >= N { return None; }
+    // pub fn add_value(&mut self, value: T) -> Option<u16>
+    // {
+    //     if self.len >= N { return None; }
         
-        let ni = self.len as u16;
-        self.len += 1;
-        self.add_value_index(value, ni);
-        return Some(ni);
-    }
+    //     let ni = self.len as u16;
+    //     self.len += 1;
+    //     self.add_value_index(value, ni);
+    //     return Some(ni);
+    // }
     fn add_value_index(&mut self, value: T, index: u16)
     {
         let mut node = InnerNode { previous: 0, value, next: 0 };
@@ -126,17 +127,17 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         }
     }
     
-    pub fn sort<F>(&mut self, mut compare: F)
-        where F: FnMut(&T, &T) -> Ordering
-    {
-        self.data[0..self.len].sort_unstable_by(|a, b| compare(&a.value, &b.value));
-        // set links to be in order of data
-        for (i, n) in self.data[0..self.len].iter_mut().enumerate()
-        {
-            n.next = ((i as usize + 1) % self.len) as u16;
-            n.previous = ((i as isize - 1) % self.len as isize) as u16;
-        }
-    }
+    // pub fn sort<F>(&mut self, mut compare: F)
+    //     where F: FnMut(&T, &T) -> Ordering
+    // {
+    //     self.data[0..self.len].sort_unstable_by(|a, b| compare(&a.value, &b.value));
+    //     // set links to be in order of data
+    //     for (i, n) in self.data[0..self.len].iter_mut().enumerate()
+    //     {
+    //         n.next = ((i as usize + 1) % self.len) as u16;
+    //         n.previous = ((i as isize - 1) % self.len as isize) as u16;
+    //     }
+    // }
     
     #[must_use]
     pub fn get_value<'a>(&'a self, index: u16) -> &'a T
@@ -159,13 +160,13 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         if self.len <= index as usize { panic!(); }
         return Node { inner: &self.data[index as usize] };
     }
-    #[must_use]
-    pub fn get_node_mut<'a>(&'a mut self, index: u16) -> NodeMut<'a, T>
-    {
-        // out of bounds
-        if self.len <= index as usize { panic!(); }
-        return NodeMut { inner: &mut self.data[index as usize] };
-    }
+    // #[must_use]
+    // pub fn get_node_mut<'a>(&'a mut self, index: u16) -> NodeMut<'a, T>
+    // {
+    //     // out of bounds
+    //     if self.len <= index as usize { panic!(); }
+    //     return NodeMut { inner: &mut self.data[index as usize] };
+    // }
     // #[must_use]
     // pub fn iter_mut_from<'a>(&'a mut self, mut index: u16) -> impl Iterator<Item = &'a mut T>
     // {
@@ -192,12 +193,6 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
             None => 0xFFFF
         };
         return LinkedIterIndex { ll: self, current: start, start };
-    }
-    #[must_use]
-    /// Iterates through all items in any order
-    pub fn iter_any(&mut self) -> impl Iterator<Item = &mut T>
-    {
-        return self.data[..self.len].iter_mut().map(|n| &mut n.value);
     }
     
     pub fn insert_sorted<F>(&mut self, compare: F, value: T) -> Option<u16>

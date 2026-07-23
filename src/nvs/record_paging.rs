@@ -88,7 +88,8 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C>> Nvs
             
             // no need to modify ignore (also shouldnt as we are only writing records)
             // - this page of records wont be considered at by the next prepare_map
-            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address, self.state, &self.ignore);
+            let mut shadow_copy = NvsShadow::<'_, _, _, C, _>::new(self.partition, tr.key_map, self.page_address,
+                self.cache, self.state, &self.ignore);
             // call in preparation for the next record to be moved
             shadow_copy.prepare_map()?;
         }

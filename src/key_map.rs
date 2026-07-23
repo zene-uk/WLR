@@ -282,7 +282,7 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         let index = match self.page_table.get(&page)
         {
             Some(i) => *i,
-            None => return space,
+            None => return space
         };
         
         // remove all space taken up by entries
@@ -312,18 +312,32 @@ impl<K: NvsKey, const PAGE_SIZE: u32, const WS: usize> KeyMap<K, PAGE_SIZE, WS>
         
         return space;
     }
-    #[must_use]
     #[inline]
+    #[must_use]
     pub fn is_page_free(&self, page: u32) -> bool
     {
         // includes overflow entries as well
         return !self.page_table.contains_key(&page);
     }
     #[inline]
+    #[must_use]
     pub fn is_key_on_page(&self, key: K, page: u32) -> bool
     {
         return self.get_table_value(key).is_some_and(|tv| tv.is_on_page(page));
     }
+    // #[inline]
+    // #[must_use]
+    // pub fn does_page_overflow(&self, page: u32) -> bool
+    // {
+    //     let index = match self.page_table.get(&(page + 1))
+    //     {
+    //         Some(i) => *i,
+    //         None => return false
+    //     };
+        
+    //     // is the first entry on the next page also on the queried page
+    //     return self.linked_list.get_value(index).is_on_page(page);
+    // }
     
     #[must_use]
     /// if new value is on a page with values already - its address will be greater

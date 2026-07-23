@@ -18,6 +18,7 @@ mod data;
 mod key_map;
 mod state;
 mod linked_list;
+mod cache;
 
 pub trait NvsKey: Enumable + PartialEq
 {
