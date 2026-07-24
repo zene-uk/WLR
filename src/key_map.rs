@@ -275,7 +275,7 @@ impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> KeyMap<K, C, KEY_COUNT>
         return MapPageValueIter::new(self, page);
     }
     #[must_use]
-    pub fn get_available_page_space<F: Ignore<K, C, KEY_COUNT>>(&self, page: u32, ignore: F) -> u32
+    pub fn get_available_page_space<F: Ignore<K, C, KEY_COUNT>>(&self, page: u32, ignore: &F) -> u32
     {
         let mut space = C::PAGE_SIZE;
         
@@ -293,7 +293,7 @@ impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> KeyMap<K, C, KEY_COUNT>
         {
             let tv = node.as_ref();
             // ignore data that is about to be moved - false because we aren't clearing them here
-            if ignore(tv.key, self, false) { continue; }
+            if ignore.has_key(tv.key, self, false) { continue; }
             
             let size = match tv.data_address.get_page() != page
             {

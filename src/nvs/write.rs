@@ -3,7 +3,7 @@ use core::{mem::MaybeUninit, slice};
 use embedded_storage::nor_flash::NorFlash;
 use hashbrown::HashMap;
 
-use crate::{Ignore, IgnoreTy, Nvs, NvsConstants, NvsError, NvsKey, Padding, WriteQueue, cache::PageData, data::{Address, Record}, key_map::KeyMap, map_err, nvs::NvsShadow, round_up};
+use crate::{Ignore, Nvs, NvsConstants, NvsError, NvsKey, Padding, WriteQueue, cache::PageData, data::{Address, Record}, key_map::KeyMap, map_err, round_up};
 
 impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> Nvs<K, T, C, KEY_COUNT>
     where [(); C::WRITE_SIZE]: ,
@@ -24,10 +24,10 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
     #[inline]
     pub fn write_key_values<V: bytemuck::Pod + PartialEq>(&mut self, key: K, values: &[V]) -> Result<(), NvsError<K, T>>
     {
-        return self.write_key_values_inner(key, values, |k, _, _| k == key);
+        return self.write_key_values_inner(key, values, &|k, _: &KeyMap<K, C, KEY_COUNT>, _| k == key);
     }
     pub(crate) fn write_key_values_inner<V: bytemuck::Pod + PartialEq, F: Ignore<K, C, KEY_COUNT>>(
-        &mut self, key: K, values: &[V], ignore: F) -> Result<(), NvsError<K, T>>
+        &mut self, key: K, values: &[V], ignore: &F) -> Result<(), NvsError<K, T>>
     {
         let size = size_of::<V>() * values.len();
         // data cannot be bigger than a page
@@ -62,11 +62,11 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
     /// Does not check whether the data has changed or not
     pub fn write_key_values_force<V: bytemuck::Pod>(&mut self, key: K, values: &[V]) -> Result<(), NvsError<K, T>>
     {
-        return self.write_key_values_force_inner(key, values, |k, _, _| k == key);
+        return self.write_key_values_force_inner(key, values, &|k, _: &KeyMap<K, C, KEY_COUNT>, _| k == key);
     }
     /// Does not check whether the data has changed or not
     pub(crate) fn write_key_values_force_inner<V: bytemuck::Pod, F: Ignore<K, C, KEY_COUNT>>(
-        &mut self, key: K, values: &[V], ignore: F) -> Result<(), NvsError<K, T>>
+        &mut self, key: K, values: &[V], ignore: &F) -> Result<(), NvsError<K, T>>
     {
         // order of operations:
         // check whether next record is on new page
@@ -158,8 +158,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
             Some(mut tv) =>
             {
                 tv.set_size(size);
-                let rec_addr = NvsShadow::<'_, K, T, C, IgnoreTy<K, C, KEY_COUNT>, KEY_COUNT>::write_record(&mut self.partition,
-                    &self.state, &mut self.page_address.record, &tv, data_addr)?;
+                let rec_addr = shadow.write_record(&tv, data_addr)?;
                 let record = tv.to_record_new_addr(data_addr);
                 if self.key_map.update_record(record, rec_addr).is_none()
                 {
@@ -191,7 +190,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
         // rewrite current data page
         if self.page_address.update_address_record
         {
-            let mut shadow = self.as_shadow(|_, _, _| false);
+            let mut shadow = self.as_shadow(&|_, _: &KeyMap<K, C, KEY_COUNT>, _| false);
             // retain this order
             shadow.prepare_map()?;
             // this is only called to make sure the value prepare_map
@@ -223,11 +222,11 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
         {
             if force
             {
-                self.write_key_values_force_inner(key, bytes, ignore)?;
+                self.write_key_values_force_inner(key, bytes, &ignore)?;
             }
             else
             {
-                self.write_key_values_inner(key, bytes, ignore)?;
+                self.write_key_values_inner(key, bytes, &ignore)?;
             }
         }
         

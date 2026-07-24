@@ -4,6 +4,8 @@ mod common;
 mod page_address;
 mod read;
 mod write;
+mod ignore;
+pub(crate) use ignore::*;
 
 use core::{marker::PhantomData, panic};
 use alloc::boxed::Box;
@@ -11,10 +13,6 @@ use embedded_storage::nor_flash::NorFlash;
 use hashbrown::HashMap;
 
 use crate::{NvsConstants, NvsError, NvsKey, cache::PageCache, data::{Address, Record}, key_map::KeyMap, map_err, nvs::page_address::PageAddresses, round_up, state::State};
-
-pub(crate) type IgnoreTy<K, C, const KEY_COUNT: usize> = fn(K, &KeyMap<K, C, KEY_COUNT>, bool) -> bool;
-pub(crate) trait Ignore<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize>: Fn(K, &KeyMap<K, C, KEY_COUNT>, bool) -> bool {}
-impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize, T: Fn(K, &KeyMap<K, C, KEY_COUNT>, bool) -> bool> Ignore<K, C, KEY_COUNT> for T {}
 
 pub struct Nvs<K: NvsKey, T: NorFlash, C: NvsConstants, const KEY_COUNT: usize>
 {
@@ -35,7 +33,7 @@ struct NvsShadow<'a, K: NvsKey, T: NorFlash, C: NvsConstants, F: Ignore<K, C, KE
     page_address: &'a mut PageAddresses<C>,
     cache: &'a mut PageCache,
     state: &'a mut State<T, C>,
-    ignore: F,
+    ignore: &'a F,
     _phantom: PhantomData<C>
 }
 impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_COUNT>, const KEY_COUNT: usize> NvsShadow<'a, K, T, C, F, KEY_COUNT>
@@ -47,7 +45,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
         page_address: &'a mut PageAddresses<C>,
         cache: &'a mut PageCache,
         state: &'a mut State<T, C>,
-        ignore: F) -> NvsShadow<'a, K, T, C, F, KEY_COUNT>
+        ignore: &'a F) -> NvsShadow<'a, K, T, C, F, KEY_COUNT>
     {
         return NvsShadow { partition, key_map, page_address, cache, state, ignore, _phantom: PhantomData };
     }
@@ -58,7 +56,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
 {
     const RECORD_OFFSET: usize = round_up!(size_of::<Record<C>>(), C::WRITE_SIZE);
     
-    fn as_shadow<'a, F: Ignore<K, C, KEY_COUNT>>(&'a mut self, ignore: F) -> NvsShadow<'a, K, T, C, F, KEY_COUNT>
+    fn as_shadow<'a, F: Ignore<K, C, KEY_COUNT>>(&'a mut self, ignore: &'a F) -> NvsShadow<'a, K, T, C, F, KEY_COUNT>
     {
         return NvsShadow::new(&mut self.partition, &mut self.key_map, &mut self.page_address, &mut self.cache, &mut self.state, ignore);
     }
@@ -164,7 +162,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
         // get next page
         if run_next_page
         {
-            let mut shadow = res.as_shadow(|_, _, _| false);
+            let mut shadow = res.as_shadow(&|_, _: &KeyMap<K, C, KEY_COUNT>, _| false);
             shadow.next_data_page();
         }
         return Ok(res);

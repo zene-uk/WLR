@@ -79,18 +79,18 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
         for mut tr in self.key_map.iter_map_page_values(page)
         {
             // skip ignore - true because we are clearing their data here
-            if (self.ignore)(tr.get_key(), tr.key_map, true) { continue; }
+            if self.ignore.has_key(tr.get_key(), tr.key_map, true) { continue; }
             
             let tv = tr.get_current_value_mut();
             // rewrite record to new location
-            let rec_addr = NvsShadow::<_, _, C, F, KEY_COUNT>::write_record(self.partition, self.state,
+            let rec_addr = NvsShadow::<_, _, C, F, KEY_COUNT>::write_record_inner(self.partition, self.state,
                 &mut self.page_address.record, tv, tv.get_address())?;
             tv.set_record(rec_addr);
             
             // no need to modify ignore (also shouldnt as we are only writing records)
             // - this page of records wont be considered at by the next prepare_map
             let mut shadow_copy = NvsShadow::<'_, _, _, C, _, KEY_COUNT>::new(self.partition, tr.key_map, self.page_address,
-                self.cache, self.state, &self.ignore);
+                self.cache, self.state, self.ignore);
             // call in preparation for the next record to be moved
             shadow_copy.prepare_map()?;
         }
@@ -103,7 +103,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
     /// 
     /// Only writes the record data, does not update the key_map
     #[must_use]
-    pub fn write_record(partition: &mut T, state: &State<T, C>, nra: &mut Address<C>,
+    pub fn write_record_inner(partition: &mut T, state: &State<T, C>, nra: &mut Address<C>,
         record: &TableValue<K, C>, new_addr: Address<C>) -> Result<Address<C>, NvsError<K, T>>
     {
         let mut write_data: Padding<Record<C>, { C::WRITE_SIZE }> = unsafe { MaybeUninit::zeroed().assume_init() };
@@ -129,11 +129,22 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
     /// i.e. `prepare_map` needs to have been called for the first write.
     /// 
     /// Only writes the records data, does not update the key_map
+    #[inline]
+    #[must_use]
+    pub fn write_record(&mut self, record: &TableValue<K, C>, new_addr: Address<C>) -> Result<Address<C>, NvsError<K, T>>
+    {
+        return Self::write_record_inner(self.partition, self.state, &mut self.page_address.record, record, new_addr);
+    }
+    /// It must be ok to write to `page_address.record` and update its value,
+    /// i.e. `prepare_map` needs to have been called for the first write.
+    /// 
+    /// Only writes the records data, does not update the key_map
+    #[inline]
     #[must_use]
     pub fn write_new_record(&mut self, record: Record<C>) -> Result<Address<C>, NvsError<K, T>>
     {
         // sets the old record address to 0 and the unused page to 0 - so that it wont try to clear the old record as it does not exist
         let tv = TableValue::from_record(record, Address::u(0));
-        return Self::write_record(self.partition, self.state, &mut self.page_address.record, &tv, record.address);
+        return Self::write_record_inner(self.partition, self.state, &mut self.page_address.record, &tv, record.address);
     }
 }

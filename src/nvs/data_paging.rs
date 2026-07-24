@@ -1,7 +1,7 @@
 use core::panic;
 use embedded_storage::nor_flash::NorFlash;
 
-use crate::{Ignore, NvsConstants, NvsError, NvsKey, cache::{PageCache, PageData}, data::Address, key_map::TableValue, map_err, nvs::NvsShadow};
+use crate::{Ignore, IgnoreKey, IgnorePage, NvsConstants, NvsError, NvsKey, cache::{PageCache, PageData}, data::Address, key_map::TableValue, map_err, nvs::NvsShadow};
 
 #[derive(Debug)]
 enum PreparePage<K: NvsKey, T: NorFlash, C: NvsConstants>
@@ -90,7 +90,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
             
             // on a new page
             self.page_address.update_address_record = true;
-            let potential_space = self.key_map.get_available_page_space(page, &self.ignore);
+            let potential_space = self.key_map.get_available_page_space(page, self.ignore);
             
             // let min_space = data_size * C::REWRITE_COPY_SIZE_MULTIPLIER as u32;
             // should not use this page - next page and prepare again
@@ -136,7 +136,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
         
         // make sure next page is ok to write to
         let overflow_size = data_size - space;
-        let potential_space = self.key_map.get_available_page_space(page + 1, &self.ignore);
+        let potential_space = self.key_map.get_available_page_space(page + 1, self.ignore);
         
         // should not use the page - so no overflow allowed - next page and prepare again
         if !C::should_rewrite_page(potential_space, overflow_size)
@@ -197,7 +197,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
         {
             let key = tr.get_key();
             // skip ignore - true because we are clearing their data here
-            if (self.ignore)(key, tr.key_map, true) { continue; }
+            if self.ignore.has_key(key, tr.key_map, true) { continue; }
             // consider overflow data
             
             let tv = tr.get_current_value();
@@ -212,7 +212,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
                     let size = tv.get_overflow_size() as u16;
                     // dont need to change ignore, from_prepare is true
                     let mut shadow_copy = NvsShadow::<'_, _, _, C, _, KEY_COUNT>::new(self.partition, tr.key_map,
-                        self.page_address, self.cache, self.state, &self.ignore);
+                        self.page_address, self.cache, self.state, self.ignore);
                     shadow_copy.write_entry_data(PageData::Cache(page, 0..size), PageData::None, true)?;
                 }
                 continue;
@@ -226,24 +226,26 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
             // write data first - so that page checks are not disrupted by our updated record data
             if page_rewrite
             {
+                let ik = IgnoreKey::new(self.ignore, key);
                 let mut shadow_copy = NvsShadow::<'_, _, _, C, _, KEY_COUNT>::new(self.partition, tr.key_map, self.page_address,
                 // only add this current entry to the ignore
                 // - cannot check by page as previous iterations are now written to this page
-                    self.cache, self.state, |k, km, clear| k == key || (self.ignore)(k, km, clear));
+                    self.cache, self.state, &ik);
                 addr = shadow_copy.write_entry_data(data, extra_data, from_prepare)?;
             }
             else
             {
+                let ip = IgnorePage::new(self.ignore, page);
                 let mut shadow_copy = NvsShadow::<'_, _, _, C, _, KEY_COUNT>::new(self.partition, tr.key_map, self.page_address,
                 // add the entries on this page to the ignore - only do this if we are writing to a new page
                 // (because all records listed to this page are the ones about to be moved)
-                    self.cache, self.state, |k, km, clear| (self.ignore)(k, km, clear) || km.is_key_on_page(k, page));
+                    self.cache, self.state, &ip);
                 addr = shadow_copy.write_entry_data(data, extra_data, from_prepare)?;
             }
             
             // actually write record
             let tv = tr.get_current_value();
-            let rec_addr = NvsShadow::<_, _, C, F, KEY_COUNT>::write_record(self.partition, self.state, &mut self.page_address.record, tv, addr)?;
+            let rec_addr = NvsShadow::<_, _, C, F, KEY_COUNT>::write_record_inner(self.partition, self.state, &mut self.page_address.record, tv, addr)?;
             let record = tv.to_record_new_addr(addr);
             // and update map
             if tr.key_map.update_record(record, rec_addr).is_none()
@@ -252,7 +254,7 @@ impl<'a, K: NvsKey, T: NorFlash, C: NvsConstants + 'static, F: Ignore<K, C, KEY_
             }
             
             let mut shadow_copy = NvsShadow::<'_, _, _, C, _, KEY_COUNT>::new(self.partition, tr.key_map, self.page_address,
-                self.cache, self.state, &self.ignore);
+                self.cache, self.state, self.ignore);
             // call in preparation for the next entry to be moved
             shadow_copy.prepare_map()?;
         }
