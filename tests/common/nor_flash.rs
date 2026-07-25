@@ -1,11 +1,13 @@
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, ReadNorFlash};
 
+#[derive(Debug)]
 pub struct NorPage
 {
     data: Box<[u8]>,
     erase_count: usize
 }
 
+#[derive(Debug)]
 pub struct NorFlashEm<const PAGE_SIZE: usize>
 {
     pages: Box<[NorPage]>

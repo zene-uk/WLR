@@ -35,21 +35,26 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
         {
             return Err(NvsError::DataTooBig(size))
         }
-        // use cache as temporary data - it won't be in use at this time
-        // data can't be bigger than page size
-        let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
-        // round up to READ_SIZE
-        let align_size = round_up!(size, C::READ_SIZE);
         
-        self.read_key_values_inner(key, &mut bytes[..align_size], false)?;
-        // do nothing as data hasn't changed
-        if values == bytemuck::cast_slice(&bytes[..size])
+        // only try to read if key exists
+        if self.contains_key(key)
         {
+            // use cache as temporary data - it won't be in use at this time
+            // data can't be bigger than page size
+            let mut bytes = self.cache.get_or_alloc(C::PAGE_SIZE as usize);
+            // round up to READ_SIZE
+            let align_size = round_up!(size, C::READ_SIZE);
+            
+            self.read_key_values_inner(key, &mut bytes[..align_size], false)?;
+            // do nothing as data hasn't changed
+            if values == bytemuck::cast_slice(&bytes[..size])
+            {
+                self.cache.return_cold(bytes);
+                return Ok(());
+            }
+            
             self.cache.return_cold(bytes);
-            return Ok(());
         }
-        
-        self.cache.return_cold(bytes);
         return self.write_key_values_force_inner(key, values, ignore);
     }
     #[inline]
@@ -140,7 +145,7 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
             // use cache as temporary data - it may be needed here but oh well (quite unlikely to cause much overhead)
             // data can't be bigger than page size
             let mut bytes = shadow.cache.get_or_alloc(C::PAGE_SIZE as usize);
-            bytes.copy_from_slice(bytemuck::cast_slice(values));
+            bytes[..size].copy_from_slice(bytemuck::cast_slice(values));
             // round up to WRITE_SIZE
             let align_size = round_up!(size, C::WRITE_SIZE);
             

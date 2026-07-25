@@ -72,4 +72,11 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
         
         return Ok(());
     }
+    
+    #[inline]
+    #[must_use]
+    pub(crate) fn contains_key(&self, key: K) -> bool
+    {
+        return self.key_map.contains_key(key);
+    }
 }

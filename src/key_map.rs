@@ -200,7 +200,10 @@ impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> KeyMap<K, C, KEY_COUNT>
         
         // remove page_table entries if necessary
         self.page_table_old(old_page, index, next_index);
-        self.page_table_old(old_end_page, index, next_index);
+        if old_page != old_end_page
+        {
+            self.page_table_old(old_end_page, index, next_index);
+        }
         
         // add new page to table if this is the first value on that page
         self.page_table_new(record.address, record.size, index);
@@ -326,6 +329,12 @@ impl<K: NvsKey, C: NvsConstants, const KEY_COUNT: usize> KeyMap<K, C, KEY_COUNT>
     pub fn is_key_on_page(&self, key: K, page: u32) -> bool
     {
         return self.get_table_value(key).is_some_and(|tv| tv.is_on_page(page));
+    }
+    #[inline]
+    #[must_use]
+    pub fn contains_key(&self, key: K) -> bool
+    {
+        return self.key_table.get(&key) != &0xFFFF;
     }
     // #[inline]
     // #[must_use]

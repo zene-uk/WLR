@@ -2,18 +2,18 @@ use core::cmp::Ordering;
 
 use alloc::boxed::Box;
 
-struct InnerNode<T>
+struct InnerNode<T: Copy>
 {
     /// need previous so that we can update values (remove then readd them)
     previous: u16,
     pub value: T,
     next: u16
 }
-pub struct Node<'a, T>
+pub struct Node<'a, T: Copy>
 {
     inner: &'a InnerNode<T>
 }
-impl<'a, T> Node<'a, T>
+impl<'a, T: Copy> Node<'a, T>
 {
     #[must_use]
     #[inline]
@@ -28,7 +28,7 @@ impl<'a, T> Node<'a, T>
     //     return self.inner.previous;
     // }
 }
-impl<'a, T> AsRef<T> for Node<'a, T>
+impl<'a, T: Copy> AsRef<T> for Node<'a, T>
 {
     #[inline]
     fn as_ref(&self) -> &T
@@ -219,15 +219,15 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         
         // finds the next to the node being added
         let mut current = &mut self.data[start as usize];
-        let mut index = 0xFFFF;
-        while index != start && compare(&current.value, &value).is_le()
+        let mut next_index = 0xFFFF;
+        while next_index != start && compare(&current.value, &value).is_le()
         {
-            index = current.next;
-            current = &mut self.data[index as usize];
+            next_index = current.next;
+            current = &mut self.data[next_index as usize];
         }
         
         // add to end
-        if index == start
+        if next_index == start
         {
             return self.add_value_index(value, index);
         }
@@ -244,7 +244,7 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         previous.next = index;
         
         // is the new first
-        if index == 0xFFFF
+        if next_index == 0xFFFF
         {
             self.first = Some(index);
         }
