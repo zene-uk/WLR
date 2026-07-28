@@ -1,4 +1,7 @@
 mod nor_flash;
+use std::println;
+
+use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 use enum_table::Enumable;
 pub use nor_flash::*;
 use wlr::{NvsConstants, NvsKey};
@@ -62,4 +65,58 @@ impl NvsConstants for Constants
     const WRITE_SIZE: usize = 4;
     // #[type_const]
     const READ_SIZE: usize = 4;
+}
+
+#[derive(Debug)]
+pub struct DebugFlash<T: NorFlash>
+{
+    inner: T
+}
+impl<T: NorFlash> DebugFlash<T>
+{
+    pub fn new(inner: T) -> Self
+    {
+        return Self { inner };
+    }
+}
+impl<T: NorFlash> ErrorType for DebugFlash<T>
+{
+    type Error = T::Error;
+}
+impl<T: NorFlash> ReadNorFlash for DebugFlash<T>
+{
+    const READ_SIZE: usize = T::READ_SIZE;
+    
+    #[inline]
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error>
+    {
+        let len = bytes.len();
+        println!("Reading {len} bytes at {offset}");
+        return self.inner.read(offset, bytes);
+    }
+    
+    #[inline]
+    fn capacity(&self) -> usize
+    {
+        return self.inner.capacity();
+    }
+}
+impl<T: NorFlash> NorFlash for DebugFlash<T>
+{
+    const WRITE_SIZE: usize = T::WRITE_SIZE;
+    const ERASE_SIZE: usize = T::ERASE_SIZE;
+
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error>
+    {
+        let len = to - from;
+        println!("Erasing {len} bytes at {from}");
+        return self.inner.erase(from, to);
+    }
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error>
+    {
+        let len = bytes.len();
+        println!("Writing {len} bytes to {offset}");
+        return self.inner.write(offset, bytes);
+    }
 }

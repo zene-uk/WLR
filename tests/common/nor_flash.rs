@@ -91,7 +91,8 @@ impl<const PAGE_SIZE: usize> ReadNorFlash for NorFlashEm<PAGE_SIZE>
         
         return Ok(());
     }
-
+    
+    #[inline]
     fn capacity(&self) -> usize
     {
         return self.pages.len() * PAGE_SIZE;
