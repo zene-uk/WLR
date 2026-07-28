@@ -1,5 +1,7 @@
-use core::cmp::Ordering;
+#[cfg(test)]
+mod tests;
 
+use core::cmp::Ordering;
 use alloc::boxed::Box;
 
 struct InnerNode<T: Copy>
@@ -260,6 +262,15 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
         
         self.data[pi as usize].next = ni;
         self.data[ni as usize].previous = pi;
+        
+        if self.first == Some(index)
+        {
+            self.first = Some(ni);
+        }
+        if self.last == Some(index)
+        {
+            self.last = Some(pi);
+        }
     }
     
     pub fn update_value<F>(&mut self, compare: F, index: u16, value: T) -> bool
@@ -271,7 +282,11 @@ impl<T: Copy, const N: usize> LinkedList<T, N>
             return false;
         }
         // already done
-        if self.len <= 1 { return true; }
+        if self.len <= 1
+        {
+            self.data[index as usize].value = value;
+            return true;
+        }
         
         // temporarily remove - then add again (but without using a new index)
         self.remove(index);
