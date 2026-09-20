@@ -9,6 +9,8 @@ impl<K: NvsKey, T: NorFlash, C: NvsConstants + 'static, const KEY_COUNT: usize> 
     where [(); C::WRITE_SIZE]: ,
         [(); C::READ_SIZE]:
 {
+    // TODO: implement remove function (not needed by me but could be useful later)
+    
     pub fn write_key_value<V: bytemuck::Pod>(&mut self, key: K, value: &V) -> Result<(), NvsError<K, T>>
         where V: PartialEq,
     {
